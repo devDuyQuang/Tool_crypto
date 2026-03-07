@@ -29,40 +29,6 @@ function toBeMarginType(m: UiMargin): "CROSSED" | "ISOLATED" {
     return m === "cross" ? "CROSSED" : "ISOLATED";
 }
 
-// ✅ react-select dark styles
-// const selectStyles = {
-//     control: (base: any, state: any) => ({
-//         ...base,
-//         backgroundColor: "transparent",
-//         borderColor: state.isFocused ? "rgba(99, 102, 241, 0.6)" : "rgba(31, 41, 55, 1)",
-//         boxShadow: state.isFocused ? "0 0 0 2px rgba(99, 102, 241, 0.25)" : "none",
-//         minHeight: "44px",
-//     }),
-//     menu: (base: any) => ({
-//         ...base,
-//         backgroundColor: "rgba(17, 24, 39, 1)",
-//         color: "rgba(243, 244, 246, 1)",
-//     }),
-//     option: (base: any, state: any) => ({
-//         ...base,
-//         backgroundColor: state.isFocused ? "rgba(31, 41, 55, 1)" : "transparent",
-//         color: "rgba(243, 244, 246, 1)",
-//         cursor: "pointer",
-//     }),
-//     singleValue: (base: any) => ({
-//         ...base,
-//         color: "rgba(243, 244, 246, 1)",
-//     }),
-//     input: (base: any) => ({
-//         ...base,
-//         color: "rgba(243, 244, 246, 1)",
-//     }),
-//     placeholder: (base: any) => ({
-//         ...base,
-//         color: "rgba(156, 163, 175, 1)",
-//     }),
-// };
-
 const inputClass =
     "h-11 w-full rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-900 " +
     "focus:outline-none focus:ring-2 focus:ring-brand-500/40 " +
