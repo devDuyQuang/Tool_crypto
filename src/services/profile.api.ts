@@ -1,4 +1,5 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3007";
+// const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3007";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://apicrypto.voduyquang.com";
 const TOKEN_KEY = "accessToken";
 
 function getToken() {

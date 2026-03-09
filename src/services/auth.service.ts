@@ -1,6 +1,6 @@
 // src/services/auth.service.ts
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3007";
-
+// const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3007";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://apicrypto.voduyquang.com";
 export type LoginBody = {
     email: string;
     password: string;
