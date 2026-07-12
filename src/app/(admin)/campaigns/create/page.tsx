@@ -34,6 +34,8 @@ const inputClass =
     "focus:outline-none focus:ring-2 focus:ring-brand-500/40 " +
     "dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100";
 
+const legacyStrategyEnabled = process.env.NEXT_PUBLIC_LEGACY_STRATEGY_EXECUTION_ENABLED === "true";
+
 export default function CampaignCreatePage() {
     const router = useRouter();
 
@@ -177,10 +179,17 @@ export default function CampaignCreatePage() {
         return null;
     }, [accountId, selectedAccount, symbolOpt, leverage, money]);
 
-    const canAnalyze = !validationError && !openModal && !codesLoading && !symbolsLoading;
+    const canAnalyze = legacyStrategyEnabled && !validationError && !openModal && !codesLoading && !symbolsLoading;
 
     const onAnalyze = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!legacyStrategyEnabled) {
+            const msg = "Legacy strategy execution is disabled. Runtime V2 will replace this flow.";
+            setError(msg);
+            toast.info(msg);
+            return;
+        }
 
         if (validationError) {
             setError(validationError);
@@ -227,6 +236,12 @@ export default function CampaignCreatePage() {
     };
 
     const onExecute = async () => {
+        if (!legacyStrategyEnabled) {
+            const msg = "Legacy strategy execution is disabled. Runtime V2 will replace this flow.";
+            setError(msg);
+            toast.info(msg);
+            return;
+        }
         if (!preview || !preview.ok) return;
         if (!preview.planId) return;
 
@@ -262,6 +277,11 @@ export default function CampaignCreatePage() {
             {error && (
                 <div className="p-3 text-sm rounded-lg bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400">
                     {error}
+                </div>
+            )}
+            {!legacyStrategyEnabled && (
+                <div className="p-3 text-sm rounded-lg bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300">
+                    Legacy Strategy/Campaign flow is disabled while Auto Runtime V2 is being introduced.
                 </div>
             )}
 
