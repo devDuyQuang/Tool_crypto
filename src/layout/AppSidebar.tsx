@@ -813,6 +813,11 @@ const navItems: NavItem[] = [
     path: "/campaigns",
   },
   {
+    icon: <PieChartIcon />,
+    name: "Bot Tự Động",
+    path: "/bot-profiles",
+  },
+  {
     icon: <ManageAccounts />,
     name: "Cài Đặt Hệ Thống",
     subItems: [
