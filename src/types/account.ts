@@ -1,7 +1,8 @@
 // src/types/account.ts
 import type { Paginated } from "./common";
 
-export type Platform = "BINANCE" | "OKX" | "BYBIT";
+export type Platform = "BINANCE" | "OKX" | "BINGX";
+export type AccountEnvironment = "DEMO" | "LIVE";
 
 export interface Account {
     id?: string;
@@ -11,6 +12,7 @@ export interface Account {
 
     crypto_exchange_id: string; // ✅ bắt buộc để filter code theo exchange
     platform: Platform;
+    environment: AccountEnvironment;
     label: string;
     apiKey: string;
 

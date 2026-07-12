@@ -136,7 +136,7 @@
 // };
 // src/services/accounts.service.ts
 import { apiFetch } from "@/lib/apiFetch";
-import type { Account, Platform } from "@/types/account";
+import type { Account, AccountEnvironment, Platform } from "@/types/account";
 import type { Paginated } from "@/types/common"
 
 export const accountsService = {
@@ -153,14 +153,14 @@ export const accountsService = {
         return apiFetch<Account>(`/accounts/${id}`);
     },
 
-    create(payload: { platform: Platform; apiKey: string; secretKey: string }) {
+    create(payload: { platform: Platform; environment: AccountEnvironment; apiKey: string; secretKey: string; passphrase?: string }) {
         return apiFetch<Account>(`/accounts`, {
             method: "POST",
             body: JSON.stringify(payload),
         });
     },
 
-    update(id: string, payload: Partial<{ platform: Platform; apiKey: string; secretKey: string; isActive: boolean }>) {
+    update(id: string, payload: Partial<{ platform: Platform; environment: AccountEnvironment; apiKey: string; secretKey: string; passphrase: string; isActive: boolean }>) {
         return apiFetch<Account>(`/accounts/${id}`, {
             method: "PATCH",
             body: JSON.stringify(payload),

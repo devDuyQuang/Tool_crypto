@@ -6,12 +6,14 @@ import { toast } from "react-toastify";
 
 import LoadingModal from "@/components/loadingModal/LoadingModal";
 import { accountsService } from "@/services/accounts.service";
-import type { Platform } from "@/types/account";
+import type { AccountEnvironment, Platform } from "@/types/account";
 
 type FormState = {
     platform: Platform;
+    environment: AccountEnvironment;
     apiKey: string;
     secretKey: string;
+    passphrase: string;
 };
 
 function genLabel(platform: string, apiKey: string) {
@@ -26,8 +28,10 @@ export default function AccountCreatePage() {
 
     const [form, setForm] = useState<FormState>({
         platform: "BINANCE",
+        environment: "DEMO",
         apiKey: "",
         secretKey: "",
+        passphrase: "",
     });
 
     const [openModal, setOpenModal] = useState(false);
@@ -37,8 +41,10 @@ export default function AccountCreatePage() {
     const payload = useMemo(
         () => ({
             platform: form.platform,
+            environment: form.environment,
             apiKey: form.apiKey.trim(),
             secretKey: form.secretKey.trim(),
+            passphrase: form.passphrase.trim() || undefined,
             // ✅ KHÔNG gửi label nữa
         }),
         [form]
@@ -52,6 +58,7 @@ export default function AccountCreatePage() {
     const validationError = useMemo(() => {
         if (!payload.apiKey) return "API Key là bắt buộc.";
         if (!payload.secretKey) return "Secret Key là bắt buộc.";
+        if (payload.platform === "OKX" && !payload.passphrase) return "OKX passphrase là bắt buộc.";
         if (payload.apiKey.length < 8) return "API Key quá ngắn (>= 8 ký tự).";
         if (payload.secretKey.length < 8) return "Secret Key quá ngắn (>= 8 ký tự).";
         return null;
@@ -110,9 +117,25 @@ export default function AccountCreatePage() {
                         onChange={(e) => setForm((p) => ({ ...p, platform: e.target.value as Platform }))}
                         disabled={openModal}
                     >
-                        {(["BINANCE", "OKX", "BYBIT"] as const).map((p) => (
+                        {(["BINANCE", "OKX", "BINGX"] as const).map((p) => (
                             <option key={p} value={p}>
                                 {p}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                <div>
+                    <label className="block mb-1 text-sm">Môi trường</label>
+                    <select
+                        className="h-11 w-full rounded-lg border px-4 text-sm dark:bg-gray-900"
+                        value={form.environment}
+                        onChange={(e) => setForm((p) => ({ ...p, environment: e.target.value as AccountEnvironment }))}
+                        disabled={openModal}
+                    >
+                        {(["DEMO", "LIVE"] as const).map((env) => (
+                            <option key={env} value={env}>
+                                {env}
                             </option>
                         ))}
                     </select>
@@ -158,6 +181,21 @@ export default function AccountCreatePage() {
                         Secret sẽ không hiển thị rõ để tránh lộ khi chia sẻ màn hình.
                     </p>
                 </div>
+
+                {form.platform === "OKX" && (
+                    <div>
+                        <label className="block mb-1 text-sm">Passphrase</label>
+                        <input
+                            type="password"
+                            className="h-11 w-full rounded-lg border px-4 text-sm dark:bg-gray-900 font-mono"
+                            value={form.passphrase}
+                            onChange={(e) => setForm((p) => ({ ...p, passphrase: e.target.value }))}
+                            disabled={openModal}
+                            autoComplete="new-password"
+                            spellCheck={false}
+                        />
+                    </div>
+                )}
 
                 <button
                     type="submit"

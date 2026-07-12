@@ -9,7 +9,7 @@
 // import { cryptoExchangesService } from "@/services/cryptoExchanges.service";
 // import type { CryptoExchange } from "@/types/cryptoExchange";
 
-// type Platform = "BINANCE" | "OKX" | "BYBIT";
+// type Platform = "BINANCE" | "OKX" | "BINGX";
 
 // function safeId(x: any) {
 //     return x?._id ?? x?.id ?? "";
@@ -168,7 +168,7 @@
 //                         onChange={(e) => setPlatform(e.target.value as Platform)}
 //                         disabled={saving}
 //                     >
-//                         {(["BINANCE", "OKX", "BYBIT"] as const).map((p) => (
+//                         {(["BINANCE", "OKX", "BINGX"] as const).map((p) => (
 //                             <option key={p} value={p}>
 //                                 {p}
 //                             </option>

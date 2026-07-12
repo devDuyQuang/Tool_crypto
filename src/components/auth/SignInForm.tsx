@@ -14,7 +14,7 @@ export default function SignInForm() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("duyquang@gmail.com");
-  const [password, setPassword] = useState("QuangA123");
+  const [password, setPassword] = useState("12345678");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
