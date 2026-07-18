@@ -136,7 +136,7 @@
 // };
 // src/services/accounts.service.ts
 import { apiFetch } from "@/lib/apiFetch";
-import type { Account, AccountEnvironment, Platform } from "@/types/account";
+import type { Account, AccountVerifyResult, Platform } from "@/types/account";
 import type { Paginated } from "@/types/common"
 
 export const accountsService = {
@@ -153,14 +153,14 @@ export const accountsService = {
         return apiFetch<Account>(`/accounts/${id}`);
     },
 
-    create(payload: { platform: Platform; environment: AccountEnvironment; apiKey: string; secretKey: string; passphrase?: string }) {
+    create(payload: { platform: Platform; label?: string; apiKey: string; secretKey: string; passphrase?: string }) {
         return apiFetch<Account>(`/accounts`, {
             method: "POST",
             body: JSON.stringify(payload),
         });
     },
 
-    update(id: string, payload: Partial<{ platform: Platform; environment: AccountEnvironment; apiKey: string; secretKey: string; passphrase: string; isActive: boolean }>) {
+    update(id: string, payload: Partial<{ platform: Platform; label: string; apiKey: string; secretKey: string; passphrase: string; isActive: boolean; tradingEnabled: boolean }>) {
         return apiFetch<Account>(`/accounts/${id}`, {
             method: "PATCH",
             body: JSON.stringify(payload),
@@ -176,6 +176,10 @@ export const accountsService = {
             method: "PATCH",
             body: JSON.stringify({ isActive: true }),
         });
+    },
+
+    verify(id: string) {
+        return apiFetch<AccountVerifyResult>(`/accounts/${id}/verify`, { method: "POST" });
     },
 
     hardDelete(id: string) {

@@ -6,11 +6,10 @@ import { toast } from "react-toastify";
 
 import LoadingModal from "@/components/loadingModal/LoadingModal";
 import { accountsService } from "@/services/accounts.service";
-import type { AccountEnvironment, Platform } from "@/types/account";
+import type { Platform } from "@/types/account";
 
 type FormState = {
     platform: Platform;
-    environment: AccountEnvironment;
     apiKey: string;
     secretKey: string;
     passphrase: string;
@@ -28,7 +27,6 @@ export default function AccountCreatePage() {
 
     const [form, setForm] = useState<FormState>({
         platform: "BINANCE",
-        environment: "DEMO",
         apiKey: "",
         secretKey: "",
         passphrase: "",
@@ -38,21 +36,20 @@ export default function AccountCreatePage() {
     const [error, setError] = useState<string | null>(null);
     const submittingRef = useRef(false);
 
+    const previewLabel = useMemo(
+        () => genLabel(form.platform, form.apiKey.trim()),
+        [form.platform, form.apiKey]
+    );
+
     const payload = useMemo(
         () => ({
             platform: form.platform,
-            environment: form.environment,
+            label: previewLabel,
             apiKey: form.apiKey.trim(),
             secretKey: form.secretKey.trim(),
             passphrase: form.passphrase.trim() || undefined,
-            // ✅ KHÔNG gửi label nữa
         }),
-        [form]
-    );
-
-    const previewLabel = useMemo(
-        () => genLabel(payload.platform, payload.apiKey),
-        [payload.platform, payload.apiKey]
+        [form, previewLabel]
     );
 
     const validationError = useMemo(() => {
@@ -120,22 +117,6 @@ export default function AccountCreatePage() {
                         {(["BINANCE", "OKX", "BINGX"] as const).map((p) => (
                             <option key={p} value={p}>
                                 {p}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-
-                <div>
-                    <label className="block mb-1 text-sm">Môi trường</label>
-                    <select
-                        className="h-11 w-full rounded-lg border px-4 text-sm dark:bg-gray-900"
-                        value={form.environment}
-                        onChange={(e) => setForm((p) => ({ ...p, environment: e.target.value as AccountEnvironment }))}
-                        disabled={openModal}
-                    >
-                        {(["DEMO", "LIVE"] as const).map((env) => (
-                            <option key={env} value={env}>
-                                {env}
                             </option>
                         ))}
                     </select>

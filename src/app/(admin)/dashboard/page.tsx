@@ -1,401 +1,216 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
-import type { OrderPlan } from "@/services/orders.service";
-import { ordersService } from "@/services/orders.service";
+import { DecisionBadge } from "@/components/product/DecisionBadge";
+import { EmptyState } from "@/components/product/EmptyState";
+import { ErrorState } from "@/components/product/ErrorState";
+import { HealthIndicator } from "@/components/product/HealthIndicator";
+import { LoadingState } from "@/components/product/LoadingState";
+import { MetricCard } from "@/components/product/MetricCard";
+import { PageHeader } from "@/components/product/PageHeader";
+import { StatusBadge } from "@/components/product/StatusBadge";
+import { accountsService } from "@/services/accounts.service";
+import { botProfilesService } from "@/services/botProfiles.service";
+import type { Account } from "@/types/account";
+import type { BotProfile, DecisionJournal, RuntimeStatus } from "@/types/botProfile";
 
-// ===== Helpers =====
-type Stats = {
-    totalPlans: number;
-
-    byPlanStatus: Record<string, number>;
-    byExchangeStatus: Record<string, number>;
-
-    openOnExchange: number;
-    closedOnExchange: number;
-    pendingOnExchange: number;
-
-    realizedPnl: number;
-    unrealizedPnl: number;
-    totalPnl: number;
-
-    closedWin: number;
-    closedLose: number;
-    winRate: number;
+type DashboardState = {
+    bots: BotProfile[];
+    accounts: Account[];
+    runtimeByBot: Record<string, RuntimeStatus | null>;
+    decisions: DecisionJournal[];
 };
 
-function toNum(x: any): number {
-    const n = Number(x);
-    return Number.isFinite(n) ? n : 0;
+function isSmokeProfile(bot: BotProfile) {
+    const name = bot.name.toLowerCase();
+    return name.includes("smoke") || name.includes("test") || name.includes("phase");
 }
 
-function pickNumber(obj: any, keys: string[]): number | null {
-    if (!obj || typeof obj !== "object") return null;
-    for (const k of keys) {
-        const v = obj?.[k];
-        const n = Number(v);
-        if (Number.isFinite(n)) return n;
-    }
-    return null;
-}
-
-function getPnlFromSnapshot(snapshot: any) {
-    const realized =
-        pickNumber(snapshot, [
-            "realizedPnl",
-            "realizedPnlUsd",
-            "realized_profit",
-            "realizedProfit",
-            "profitRealized",
-            "rpnl",
-            "rPnl",
-            "pnlRealized",
-        ]) ?? 0;
-
-    const unrealized =
-        pickNumber(snapshot, [
-            "unrealizedPnl",
-            "unrealizedPnlUsd",
-            "unrealized_profit",
-            "unrealizedProfit",
-            "profitUnrealized",
-            "upnl",
-            "uPnl",
-            "pnlUnrealized",
-        ]) ?? 0;
-
-    const totalFallback =
-        pickNumber(snapshot, ["pnl", "profit", "profitUsd", "pnlUsd", "totalPnl"]) ?? 0;
-
-    const useFallback = realized === 0 && unrealized === 0 && totalFallback !== 0;
-
-    return {
-        realized: useFallback ? totalFallback : realized,
-        unrealized,
-    };
-}
-
-/**
- * ✅ Trạng thái sàn "thực tế" suy từ exchangeSnapshot:
- * - OPEN: còn positionAmt != 0 OR còn openOrders (NEW/PARTIALLY_FILLED)
- * - CLOSED: positionAmt == 0 AND không còn openOrders active
- * - PENDING: chưa có snapshot nhưng DB báo PENDING / hoặc status plan mới EXECUTED mà chưa sync
- * - fallback: dùng exchangeStatus DB nếu không có snapshot
- */
-function deriveExchangeStatus(p: any): "OPEN" | "CLOSED" | "PENDING" | "UNKNOWN" {
-    const snap = p?.exchangeSnapshot;
-    const dbStatus = (p?.exchangeStatus ?? "UNKNOWN") as string;
-
-    // Chưa sync snapshot lần nào
-    if (!snap) {
-        if (dbStatus === "PENDING") return "PENDING";
-        // nếu plan EXECUTED mà chưa có snapshot => cũng coi là PENDING (đang chờ sync lên sàn)
-        if (p?.status === "EXECUTED") return "PENDING";
-        return (dbStatus as any) ?? "UNKNOWN";
-    }
-
-    const posAmt = Number(snap?.position?.positionAmt ?? 0);
-    const openOrders = Array.isArray(snap?.openOrders) ? snap.openOrders : [];
-
-    // position còn tồn tại => OPEN
-    if (Number.isFinite(posAmt) && posAmt !== 0) return "OPEN";
-
-    // openOrders còn NEW/PARTIALLY_FILLED => vẫn OPEN (vì lệnh còn treo)
-    const hasActiveOrder = openOrders.some((o: any) => {
-        const st = String(o?.status ?? "").toUpperCase();
-        return st === "NEW" || st === "PARTIALLY_FILLED";
-    });
-    if (hasActiveOrder) return "OPEN";
-
-    // sạch position + sạch open orders => CLOSED
-    return "CLOSED";
-}
-
-async function fetchAllOrders(opts?: { pageSize?: number; maxPages?: number }) {
-    const pageSize = opts?.pageSize ?? 50;
-    const maxPages = opts?.maxPages ?? 50;
-
-    let page = 1;
-    let all: OrderPlan[] = [];
-
-    while (page <= maxPages) {
-        const res = await ordersService.findAll({ page, limit: pageSize });
-        const data: OrderPlan[] = Array.isArray((res as any)?.data) ? (res as any).data : [];
-        all = all.concat(data);
-
-        const totalPages = (res as any)?.meta?.totalPages ?? 1;
-        if (page >= totalPages) break;
-        page += 1;
-    }
-
-    return all;
-}
-
-function formatMoney(n: number) {
-    return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-function Card({
-    title,
-    value,
-    sub,
-}: {
-    title: string;
-    value: React.ReactNode;
-    sub?: React.ReactNode;
-}) {
-    return (
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-            <div className="text-sm text-gray-500 dark:text-gray-400">{title}</div>
-            <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-gray-100">{value}</div>
-            {sub ? <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{sub}</div> : null}
-        </div>
-    );
+function naturalDecisions(decisions: DecisionJournal[]) {
+    return decisions.filter((decision) => decision.sourceType !== "ACCEPTANCE" && decision.decisionScope !== "ACCEPTANCE");
 }
 
 export default function DashboardPage() {
+    const [state, setState] = useState<DashboardState>({ bots: [], accounts: [], runtimeByBot: {}, decisions: [] });
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [orders, setOrders] = useState<OrderPlan[]>([]);
-    const pollingLockRef = useRef(false);
 
-    // ✅ Sync nhẹ các lệnh EXECUTED nhưng chưa "CLOSED thật" theo snapshot
-    const syncLight = async (list: OrderPlan[]) => {
-        const candidates = list.filter((o: any) => {
-            if (o?.status !== "EXECUTED") return false;
-
-            // Nếu có snapshot rồi => chỉ sync nếu vẫn chưa CLOSED theo snapshot
-            const eff = deriveExchangeStatus(o);
-            if (eff === "CLOSED") return false;
-
-            // Nếu chưa có snapshot => sync để kéo snapshot về
-            return true;
-        });
-
-        const targets = candidates.slice(0, 15);
-        if (!targets.length) return;
-
-        setSyncing(true);
-        try {
-            await Promise.allSettled(targets.map((o) => ordersService.sync(o._id)));
-        } finally {
-            setSyncing(false);
-        }
-    };
-
-    const load = async (doSync = true) => {
+    const load = async () => {
         setLoading(true);
         setError(null);
-
         try {
-            const all = await fetchAllOrders({ pageSize: 50, maxPages: 100 });
+            const [botRes, accountRes] = await Promise.all([
+                botProfilesService.findAll({ page: 1, limit: 100, includeArchived: true }),
+                accountsService.findAll({ page: 1, limit: 100 }),
+            ]);
+            const bots = Array.isArray((botRes as any).data) ? (botRes as any).data as BotProfile[] : [];
+            const accounts = Array.isArray((accountRes as any).data) ? (accountRes as any).data as Account[] : [];
+            const visibleBots = bots.filter((bot) => !isSmokeProfile(bot));
 
-            if (doSync) {
-                await syncLight(all);
-                const after = await fetchAllOrders({ pageSize: 50, maxPages: 100 });
-                setOrders(after);
-            } else {
-                setOrders(all);
-            }
+            const runtimeEntries = await Promise.all(
+                visibleBots.slice(0, 20).map(async (bot) => {
+                    try {
+                        const runtime = await botProfilesService.runtimeStatus(bot._id);
+                        return [bot._id, runtime] as const;
+                    } catch {
+                        return [bot._id, null] as const;
+                    }
+                })
+            );
+
+            const decisionLists = await Promise.all(
+                visibleBots.slice(0, 10).map(async (bot) => {
+                    try {
+                        return await botProfilesService.decisions(bot._id);
+                    } catch {
+                        return [];
+                    }
+                })
+            );
+
+            setState({
+                bots: visibleBots,
+                accounts,
+                runtimeByBot: Object.fromEntries(runtimeEntries),
+                decisions: naturalDecisions(decisionLists.flat()).sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 8),
+            });
         } catch (e: any) {
-            const msg = e?.message || "Load dashboard stats failed";
-            setError(msg);
-            toast.error(msg);
+            const message = e?.message || "Không tải được dashboard vận hành";
+            setError(message);
+            toast.error(message);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        load(true);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        load();
     }, []);
 
-    // ✅ polling 7s
-    useEffect(() => {
-        const t = setInterval(async () => {
-            if (pollingLockRef.current) return;
-            pollingLockRef.current = true;
-            try {
-                await load(true);
-            } finally {
-                pollingLockRef.current = false;
-            }
-        }, 7000);
+    const metrics = useMemo(() => {
+        const running = state.bots.filter((bot) => bot.status === "RUNNING").length;
+        const paused = state.bots.filter((bot) => bot.status === "PAUSED").length;
+        const stopped = state.bots.filter((bot) => bot.status === "STOPPED").length;
+        const symbolsScanning = state.bots
+            .filter((bot) => bot.status === "RUNNING")
+            .reduce((sum, bot) => sum + (bot.symbols ?? []).filter((s) => s.enabled).length, 0);
+        const counts = state.decisions.reduce(
+            (acc, decision) => {
+                acc[decision.decision] = (acc[decision.decision] ?? 0) + 1;
+                return acc;
+            },
+            { LONG: 0, SHORT: 0, NO_TRADE: 0 } as Record<string, number>
+        );
+        const runtimeErrors = Object.values(state.runtimeByBot).filter((runtime) => String(runtime?.lastRun?.status ?? "").toUpperCase() === "FAILED").length;
+        const activeAccounts = state.accounts.filter((account) => account.isActive).length;
+        const lastRun = Object.values(state.runtimeByBot)
+            .map((runtime) => runtime?.lastRun?.completedAt ?? runtime?.lastRun?.startedAt)
+            .filter(Boolean)
+            .sort()
+            .at(-1);
 
-        return () => clearInterval(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        return { running, paused, stopped, symbolsScanning, counts, runtimeErrors, activeAccounts, lastRun };
+    }, [state]);
 
-    const stats: Stats = useMemo(() => {
-        const byPlanStatus: Record<string, number> = {};
-        const byExchangeStatus: Record<string, number> = {};
-
-        let realizedPnl = 0;
-        let unrealizedPnl = 0;
-
-        let openOnExchange = 0;
-        let closedOnExchange = 0;
-        let pendingOnExchange = 0;
-
-        let closedWin = 0;
-        let closedLose = 0;
-
-        for (const p of orders) {
-            const planStatus = (p as any).status ?? "UNKNOWN";
-            const exStatus = deriveExchangeStatus(p);
-
-            byPlanStatus[planStatus] = (byPlanStatus[planStatus] ?? 0) + 1;
-            byExchangeStatus[exStatus] = (byExchangeStatus[exStatus] ?? 0) + 1;
-
-            if (exStatus === "OPEN") openOnExchange += 1;
-            else if (exStatus === "CLOSED") closedOnExchange += 1;
-            else if (exStatus === "PENDING") pendingOnExchange += 1;
-
-            const snapshot = (p as any).exchangeSnapshot;
-            const pnl = getPnlFromSnapshot(snapshot);
-
-            if (exStatus === "CLOSED") {
-                realizedPnl += toNum(pnl.realized);
-                if (toNum(pnl.realized) >= 0) closedWin += 1;
-                else closedLose += 1;
-            } else if (exStatus === "OPEN") {
-                unrealizedPnl += toNum(pnl.unrealized);
-            } else {
-                realizedPnl += toNum(pnl.realized);
-                unrealizedPnl += toNum(pnl.unrealized);
-            }
-        }
-
-        const totalPnl = realizedPnl + unrealizedPnl;
-        const closedTotal = closedWin + closedLose;
-        const winRate = closedTotal > 0 ? (closedWin / closedTotal) * 100 : 0;
-
-        return {
-            totalPlans: orders.length,
-            byPlanStatus,
-            byExchangeStatus,
-            openOnExchange,
-            closedOnExchange,
-            pendingOnExchange,
-            realizedPnl,
-            unrealizedPnl,
-            totalPnl,
-            closedWin,
-            closedLose,
-            winRate,
-        };
-    }, [orders]);
+    if (loading) return <LoadingState label="Đang tải Auto Bot Operations Dashboard..." />;
+    if (error) return <ErrorState message={error} action={<button onClick={load} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white">Tải lại</button>} />;
 
     return (
-        <div className="space-y-6 text-gray-900 dark:text-gray-100">
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Bảng điều khiển</h1>
+        <div className="space-y-6">
+            <PageHeader
+                eyebrow="Auto Trading Console"
+                title="Bảng điều khiển vận hành bot"
+                description="Theo dõi runtime tự động, sức khỏe dữ liệu, quyết định mới nhất và trạng thái tài khoản. Execution được kiểm soát ở backend; màn hình này không có nút đặt lệnh thủ công."
+                actions={<Link href="/bot-profiles" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">Quản lý bot</Link>}
+            />
 
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => load(true)}
-                        disabled={loading || syncing}
-                        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm
-              text-gray-700 hover:bg-gray-50 disabled:opacity-50
-              dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800/50"
-                    >
-                        {syncing ? "Đang sync..." : "Refresh + Sync"}
-                    </button>
-                </div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <MetricCard label="Bot đang chạy" value={metrics.running} helper={`${metrics.paused} tạm dừng · ${metrics.stopped} dừng/nháp`} tone="success" />
+                <MetricCard label="Symbol đang quét" value={metrics.symbolsScanning} helper="Tính theo bot RUNNING" tone="dry" />
+                <MetricCard label="Lần quét cuối" value={metrics.lastRun ? new Date(metrics.lastRun).toLocaleTimeString() : "Chưa có"} helper={metrics.lastRun ? new Date(metrics.lastRun).toLocaleDateString() : "Runtime chưa ghi run"} />
+                <MetricCard label="Lỗi runtime" value={metrics.runtimeErrors} helper="Từ lần quét gần nhất" tone={metrics.runtimeErrors ? "error" : "success"} />
             </div>
 
-            {loading && <div className="text-sm text-gray-600 dark:text-gray-400">Đang tải thống kê...</div>}
+            <div className="grid gap-4 md:grid-cols-3">
+                <MetricCard label="LONG" value={metrics.counts.LONG} helper="Nhật ký quyết định gần đây" tone="success" />
+                <MetricCard label="SHORT" value={metrics.counts.SHORT} helper="Nhật ký quyết định gần đây" tone="error" />
+                <MetricCard label="NO_TRADE" value={metrics.counts.NO_TRADE} helper="Kết quả bình thường khi điều kiện chưa đủ" />
+            </div>
 
-            {error && (
-                <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-300">
-                    {error}
+            <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+                <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                    <div className="mb-4 flex items-center justify-between">
+                        <h2 className="text-lg font-semibold text-gray-950 dark:text-white">Bot đang chạy</h2>
+                        <Link href="/bot-profiles" className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">Xem tất cả</Link>
+                    </div>
+                    <div className="space-y-3">
+                        {state.bots.filter((bot) => bot.status === "RUNNING").length === 0 ? (
+                            <EmptyState title="Chưa có bot đang chạy" description="START chỉ khả dụng cho profile khi runtime flag đã bật ở backend." />
+                        ) : (
+                            state.bots.filter((bot) => bot.status === "RUNNING").map((bot) => (
+                                <Link key={bot._id} href={`/bot-profiles/${bot._id}`} className="block rounded-lg border border-gray-100 p-4 hover:border-brand-200 dark:border-gray-800 dark:hover:border-brand-800">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <div className="font-semibold text-gray-950 dark:text-white">{bot.name}</div>
+                                            <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">{bot.platform} · {(bot.symbols ?? []).filter((s) => s.enabled).length} symbol</div>
+                                        </div>
+                                        <StatusBadge value={bot.status} />
+                                    </div>
+                                </Link>
+                            ))
+                        )}
+                    </div>
+                </section>
+
+                <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                    <h2 className="text-lg font-semibold text-gray-950 dark:text-white">Sức khỏe hệ thống</h2>
+                    <div className="mt-4 space-y-4">
+                        <HealthIndicator health={metrics.activeAccounts > 0 ? "healthy" : "warning"} label={`${metrics.activeAccounts} tài khoản đang hoạt động`} />
+                        <HealthIndicator health={metrics.runtimeErrors ? "error" : "healthy"} label={metrics.runtimeErrors ? "Có lỗi runtime cần xem" : "Không có lỗi runtime gần đây"} />
+                        <HealthIndicator health="healthy" label="Giao dịch chỉ chạy khi account đã xác minh và bật quyền giao dịch" />
+                        <p className="rounded-lg bg-sky-50 p-3 text-sm leading-6 text-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
+                            Context confidence chỉ đo độ chắc chắn phân loại bối cảnh, không phải xác suất thắng.
+                        </p>
+                    </div>
+                </section>
+            </div>
+
+            <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-gray-950 dark:text-white">Quyết định mới nhất</h2>
+                    <Link href="/bot-decisions" className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">Mở nhật ký</Link>
                 </div>
-            )}
-
-            {!loading && !error && (
-                <>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                        <Card title="Tổng số lệnh" value={stats.totalPlans} />
-                        <Card title="Lệnh đang mở trên sàn (OPEN*)" value={stats.openOnExchange} sub="OPEN = còn position hoặc còn order NEW/PARTIALLY_FILLED" />
-                        <Card title="Lệnh đã đóng (CLOSED*)" value={stats.closedOnExchange} sub="CLOSED = position=0 và không còn openOrders active" />
-                        <Card title="Chờ đồng bộ / PENDING" value={stats.pendingOnExchange} />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                        <Card title="PnL đã chốt (Realized)" value={formatMoney(stats.realizedPnl)} sub="Tính từ exchangeSnapshot nếu có realizedPnl" />
-                        <Card title="PnL đang chạy (Unrealized)" value={formatMoney(stats.unrealizedPnl)} sub="Tính từ exchangeSnapshot nếu có unrealizedPnl" />
-                        <Card
-                            title="PnL tổng"
-                            value={formatMoney(stats.totalPnl)}
-                            sub={`Winrate (CLOSED): ${stats.winRate.toFixed(1)}% • Win: ${stats.closedWin} / Lose: ${stats.closedLose}`}
-                        />
-                    </div>
-
-                    {/* Optional: breakdown */}
-                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                            <h2 className="text-lg font-semibold">Trạng thái theo Plan</h2>
-                            <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-600 dark:bg-gray-800/60 dark:text-gray-200">
-                                        <tr className="text-left">
-                                            <th className="p-3">Status</th>
-                                            <th className="p-3">Số lượng</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                                        {Object.entries(stats.byPlanStatus).map(([k, v]) => (
-                                            <tr key={k}>
-                                                <td className="p-3">{k}</td>
-                                                <td className="p-3">{v}</td>
-                                            </tr>
-                                        ))}
-                                        {Object.keys(stats.byPlanStatus).length === 0 && (
-                                            <tr>
-                                                <td className="p-3 text-gray-600 dark:text-gray-400" colSpan={2}>
-                                                    Không có dữ liệu
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                            <h2 className="text-lg font-semibold">Trạng thái theo Sàn (Effective)</h2>
-                            <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-600 dark:bg-gray-800/60 dark:text-gray-200">
-                                        <tr className="text-left">
-                                            <th className="p-3">ExchangeStatus</th>
-                                            <th className="p-3">Số lượng</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                                        {Object.entries(stats.byExchangeStatus).map(([k, v]) => (
-                                            <tr key={k}>
-                                                <td className="p-3">{k}</td>
-                                                <td className="p-3">{v}</td>
-                                            </tr>
-                                        ))}
-                                        {Object.keys(stats.byExchangeStatus).length === 0 && (
-                                            <tr>
-                                                <td className="p-3 text-gray-600 dark:text-gray-400" colSpan={2}>
-                                                    Không có dữ liệu
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </>
-            )}
+                <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-left text-sm">
+                        <thead className="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                            <tr>
+                                <th className="py-3">Thời gian</th>
+                                <th className="py-3">Symbol</th>
+                                <th className="py-3">Scenario</th>
+                                <th className="py-3">Trigger</th>
+                                <th className="py-3">Quyết định</th>
+                                <th className="py-3">Risk</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                            {state.decisions.length === 0 ? (
+                                <tr><td colSpan={6} className="py-5 text-gray-500 dark:text-gray-400">Chưa có tín hiệu giao dịch mới.</td></tr>
+                            ) : state.decisions.map((decision) => (
+                                <tr key={decision._id ?? `${decision.symbol}-${decision.evaluatedCandleOpenTime}`}>
+                                    <td className="py-3 text-gray-600 dark:text-gray-300">{decision.createdAt ? new Date(decision.createdAt).toLocaleString() : "-"}</td>
+                                    <td className="py-3 font-medium text-gray-950 dark:text-white">{decision.symbol}</td>
+                                    <td className="py-3 text-gray-600 dark:text-gray-300">{decision.scenario}</td>
+                                    <td className="py-3 text-gray-600 dark:text-gray-300">{decision.triggerStatus}</td>
+                                    <td className="py-3"><DecisionBadge decision={decision.decision} /></td>
+                                    <td className="py-3"><StatusBadge value={decision.riskEvaluation?.status ?? "NO_TRADE"} /></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </div>
     );
 }

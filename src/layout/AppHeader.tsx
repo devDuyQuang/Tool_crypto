@@ -4,16 +4,15 @@ import { ThemeToggleButton } from "@/components/common/ThemeToggleButton";
 import NotificationDropdown from "@/components/header/NotificationDropdown";
 import UserDropdown from "@/components/header/UserDropdown";
 import { useSidebar } from "@/context/SidebarContext";
-import Image from "next/image";
 import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation"; // ✅ ADD
+import { useRouter } from "next/navigation";
 
 const AppHeader: React.FC = () => {
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);
   const { isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
 
-  const router = useRouter(); // ✅ ADD
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleToggle = () => {
@@ -23,7 +22,6 @@ const AppHeader: React.FC = () => {
 
   const toggleApplicationMenu = () => setApplicationMenuOpen(!isApplicationMenuOpen);
 
-  // ✅ Ctrl/Cmd + K focus search (nếu bạn vẫn giữ search)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -65,9 +63,9 @@ const AppHeader: React.FC = () => {
             )}
           </button>
 
-          <Link href="/" className="lg:hidden">
-            <Image width={154} height={32} className="dark:hidden" src="./images/logo/logo.svg" alt="Logo" />
-            <Image width={154} height={32} className="hidden dark:block" src="./images/logo/logo-dark.svg" alt="Logo" />
+          <Link href="/dashboard" className="flex items-center gap-2 lg:hidden">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-950 text-xs font-bold text-white dark:bg-white dark:text-gray-950">AT</span>
+            <span className="text-sm font-semibold text-gray-950 dark:text-white">Auto Trading Console</span>
           </Link>
 
           <button
@@ -84,19 +82,16 @@ const AppHeader: React.FC = () => {
             </svg>
           </button>
 
-          {/* ✅ Search area (desktop) */}
           <div className="hidden lg:flex items-center gap-2">
-            {/* ✅ Nút lịch sử lệnh luôn hiện */}
             <button
               type="button"
-              onClick={() => router.push("/orders")}
+              onClick={() => router.push("/bot-profiles")}
               className="inline-flex h-11 items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 text-sm
                 text-gray-700 shadow-theme-xs hover:bg-gray-100
                 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-200 dark:hover:bg-white/[0.06]"
-              title="Xem lịch sử lệnh"
+              title="Xem bot tự động"
             >
-              <span aria-hidden>📜</span>
-              <span>Lịch sử lệnh</span>
+              <span>Bot tự động</span>
             </button>
 
             {/* ✅ SEARCH CŨ (GIỮ LẠI BẰNG COMMENT NẾU THẦY BẢO ẨN SEARCH) */}

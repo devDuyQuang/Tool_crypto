@@ -1,234 +1,202 @@
-// "use client";
+"use client";
 
-// import React, { useEffect, useMemo, useRef, useState } from "react";
-// import { useParams, useRouter } from "next/navigation";
-// import { toast } from "react-toastify";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "react-toastify";
 
-// import LoadingModal from "@/components/loadingModal/LoadingModal";
-// import { accountsService } from "@/services/accounts.service";
-// import { cryptoExchangesService } from "@/services/cryptoExchanges.service";
-// import type { CryptoExchange } from "@/types/cryptoExchange";
+import { ErrorState } from "@/components/product/ErrorState";
+import { LoadingState } from "@/components/product/LoadingState";
+import { PageHeader } from "@/components/product/PageHeader";
+import { StatusBadge } from "@/components/product/StatusBadge";
+import { accountsService } from "@/services/accounts.service";
+import type { Account, Platform } from "@/types/account";
 
-// type Platform = "BINANCE" | "OKX" | "BINGX";
+const PLATFORMS: Platform[] = ["BINANCE", "OKX", "BINGX"];
 
-// function safeId(x: any) {
-//     return x?._id ?? x?.id ?? "";
-// }
+function accountId(account: Account) {
+    return account._id ?? account.id ?? "";
+}
 
-// export default function AccountEditPage() {
-//     const router = useRouter();
-//     const params = useParams<{ id: string }>();
-//     const id = params?.id;
-
-//     const [exchanges, setExchanges] = useState<CryptoExchange[]>([]);
-//     const [exchangeId, setExchangeId] = useState("");
-
-//     const [platform, setPlatform] = useState<Platform>("BINANCE");
-//     const [label, setLabel] = useState("");
-//     const [apiKey, setApiKey] = useState("");
-//     const [secretKey, setSecretKey] = useState("");
-//     const [isActive, setIsActive] = useState(true);
-
-//     const [loading, setLoading] = useState(true);
-//     const [saving, setSaving] = useState(false);
-//     const [openModal, setOpenModal] = useState(false);
-//     const [error, setError] = useState<string | null>(null);
-
-//     const submittingRef = useRef(false);
-
-//     useEffect(() => {
-//         if (!id) return;
-
-//         const load = async () => {
-//             setError(null);
-//             setLoading(true);
-
-//             try {
-//                 const [exRes, acc] = await Promise.all([
-//                     cryptoExchangesService.findAll({ page: 1, limit: 50 }),
-//                     accountsService.findOne(id),
-//                 ]);
-
-//                 const exItems = Array.isArray(exRes?.data) ? exRes.data : [];
-//                 setExchanges(exItems);
-
-//                 setPlatform((acc as any).platform || "BINANCE");
-//                 setLabel((acc as any).label || "");
-//                 setApiKey((acc as any).apiKey || "");
-//                 setIsActive(Boolean((acc as any).isActive));
-
-//                 const rawExId =
-//                     (acc as any).crypto_exchange_id?._id ??
-//                     (acc as any).crypto_exchange_id ??
-//                     (acc as any).cryptoExchangeId;
-
-//                 if (rawExId) setExchangeId(String(rawExId));
-
-//                 if (!(acc as any).platform && rawExId) {
-//                     const ex = exItems.find((x) => safeId(x) === String(rawExId));
-//                     if (ex?.name) setPlatform(ex.name as Platform);
-//                 }
-//             } catch (e: any) {
-//                 setError(e?.message || "Load failed");
-//             } finally {
-//                 setLoading(false);
-//             }
-//         };
-
-//         load();
-//     }, [id]);
-
-//     const payload = useMemo(() => {
-//         const p: any = {
-//             crypto_exchange_id: exchangeId,
-//             platform,
-//             label: label.trim(),
-//             apiKey: apiKey.trim(),
-//             isActive,
-//         };
-//         if (secretKey.trim()) p.secretKey = secretKey.trim();
-//         return p;
-//     }, [exchangeId, platform, label, apiKey, isActive, secretKey]);
-
-//     const canSubmit = Boolean(payload.crypto_exchange_id && payload.label && payload.apiKey);
-
-//     const onSubmit = async (e: React.FormEvent) => {
-//         e.preventDefault();
-//         if (!canSubmit || !id) return;
-
-//         if (submittingRef.current) return;
-//         submittingRef.current = true;
-
-//         setError(null);
-//         setSaving(true);
-//         setOpenModal(true);
-
-//         try {
-//             await accountsService.update(id, payload);
-//             toast.success("Cập nhật account thành công ✅");
-
-//             setOpenModal(false);
-//             router.push("/accounts");
-//             router.refresh();
-//         } catch (e: any) {
-//             toast.error(e?.message || "Update failed ❌");
-//             setError(e?.message || "Update failed");
-//             setOpenModal(false);
-//         } finally {
-//             submittingRef.current = false;
-//             setSaving(false);
-//         }
-//     };
-
-//     if (loading) return <div>Loading...</div>;
-
-//     return (
-//         <div className="max-w-xl space-y-4">
-//             <LoadingModal open={openModal} text="Đang lưu..." />
-
-//             <h1 className="text-xl font-semibold">Edit Account</h1>
-
-//             {error && (
-//                 <div className="p-3 text-sm rounded-lg bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400">
-//                     {error}
-//                 </div>
-//             )}
-
-//             <form onSubmit={onSubmit} className="space-y-4">
-//                 <div>
-//                     <label className="block mb-1 text-sm">Exchange</label>
-//                     <select
-//                         className="h-11 w-full rounded-lg border px-4 text-sm dark:bg-gray-900"
-//                         value={exchangeId}
-//                         onChange={(e) => {
-//                             const nextId = e.target.value;
-//                             setExchangeId(nextId);
-
-//                             const ex = exchanges.find((x) => safeId(x) === nextId);
-//                             if (ex?.name) setPlatform(ex.name as Platform);
-//                         }}
-//                         disabled={saving}
-//                     >
-//                         {exchanges.map((ex) => {
-//                             const exId = safeId(ex);
-//                             return (
-//                                 <option key={exId} value={exId}>
-//                                     {ex.name}
-//                                 </option>
-//                             );
-//                         })}
-//                     </select>
-//                 </div>
-
-//                 <div>
-//                     <label className="block mb-1 text-sm">Platform</label>
-//                     <select
-//                         className="h-11 w-full rounded-lg border px-4 text-sm dark:bg-gray-900"
-//                         value={platform}
-//                         onChange={(e) => setPlatform(e.target.value as Platform)}
-//                         disabled={saving}
-//                     >
-//                         {(["BINANCE", "OKX", "BINGX"] as const).map((p) => (
-//                             <option key={p} value={p}>
-//                                 {p}
-//                             </option>
-//                         ))}
-//                     </select>
-//                 </div>
-
-//                 <div>
-//                     <label className="block mb-1 text-sm">Label</label>
-//                     <input
-//                         className="h-11 w-full rounded-lg border px-4 text-sm dark:bg-gray-900"
-//                         value={label}
-//                         onChange={(e) => setLabel(e.target.value)}
-//                         required
-//                         disabled={saving}
-//                     />
-//                 </div>
-
-//                 <div>
-//                     <label className="block mb-1 text-sm">API Key</label>
-//                     <input
-//                         className="h-11 w-full rounded-lg border px-4 text-sm dark:bg-gray-900 font-mono"
-//                         value={apiKey}
-//                         onChange={(e) => setApiKey(e.target.value)}
-//                         required
-//                         disabled={saving}
-//                     />
-//                 </div>
-
-//                 <div>
-//                     <label className="block mb-1 text-sm">Secret Key (optional)</label>
-//                     <input
-//                         className="h-11 w-full rounded-lg border px-4 text-sm dark:bg-gray-900 font-mono"
-//                         value={secretKey}
-//                         onChange={(e) => setSecretKey(e.target.value)}
-//                         placeholder="Để trống nếu không đổi"
-//                         disabled={saving}
-//                     />
-//                 </div>
-
-//                 <div className="flex items-center gap-2">
-//                     <input
-//                         type="checkbox"
-//                         checked={isActive}
-//                         onChange={(e) => setIsActive(e.target.checked)}
-//                         disabled={saving}
-//                     />
-//                     <span className="text-sm">Active</span>
-//                 </div>
-
-//                 <button
-//                     disabled={saving || !canSubmit}
-//                     className="px-4 py-2 text-sm rounded-lg bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60"
-//                 >
-//                     {saving ? "Saving..." : "Save"}
-//                 </button>
-//             </form>
-//         </div>
-//     );
-// }
 export default function AccountEditPage() {
-    return <div>Coming soon</div>;
+    const router = useRouter();
+    const params = useParams<{ id: string }>();
+    const id = params?.id;
+    const savingRef = useRef(false);
+
+    const [account, setAccount] = useState<Account | null>(null);
+    const [platform, setPlatform] = useState<Platform>("BINANCE");
+    const [label, setLabel] = useState("");
+    const [apiKey, setApiKey] = useState("");
+    const [secretKey, setSecretKey] = useState("");
+    const [passphrase, setPassphrase] = useState("");
+    const [isActive, setIsActive] = useState(true);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!id) return;
+        let mounted = true;
+        const load = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const item = await accountsService.findOne(id);
+                if (!mounted) return;
+                setAccount(item);
+                setPlatform(item.platform);
+                setLabel(item.label ?? "");
+                setApiKey(item.apiKey ?? "");
+                setIsActive(Boolean(item.isActive));
+                setSecretKey("");
+                setPassphrase("");
+            } catch (e: any) {
+                if (mounted) setError(e?.message || "Tải tài khoản thất bại");
+            } finally {
+                if (mounted) setLoading(false);
+            }
+        };
+        load();
+        return () => {
+            mounted = false;
+        };
+    }, [id]);
+
+    const credentialChanged = useMemo(() => {
+        if (!account) return false;
+        return platform !== account.platform || apiKey.trim() !== account.apiKey || Boolean(secretKey.trim()) || Boolean(passphrase.trim());
+    }, [account, platform, apiKey, secretKey, passphrase]);
+
+    const canSubmit = Boolean(id && label.trim() && apiKey.trim()) && !saving;
+
+    const onSubmit = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!id || !canSubmit || savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
+        setError(null);
+        try {
+            const payload: any = {
+                platform,
+                label: label.trim(),
+                apiKey: apiKey.trim(),
+                isActive,
+            };
+            if (secretKey.trim()) payload.secretKey = secretKey.trim();
+            if (platform === "OKX" && passphrase.trim()) payload.passphrase = passphrase.trim();
+
+            await accountsService.update(id, payload);
+            toast.success(credentialChanged ? "Đã lưu. Vui lòng kiểm tra kết nối lại." : "Đã lưu tài khoản");
+            router.push("/accounts");
+            router.refresh();
+        } catch (e: any) {
+            const message = e?.message || "Cập nhật tài khoản thất bại";
+            setError(message);
+            toast.error(message);
+        } finally {
+            savingRef.current = false;
+            setSaving(false);
+        }
+    };
+
+    if (loading) return <LoadingState />;
+
+    return (
+        <div className="space-y-6">
+            <PageHeader
+                eyebrow="Kết nối"
+                title="Chỉnh sửa tài khoản sàn"
+                description="Credential đã lưu không được hiển thị lại. Để trống secret/passphrase nếu muốn giữ credential cũ."
+                actions={<Link href="/accounts" className="rounded-lg border border-gray-200 px-4 py-2 text-sm dark:border-gray-800">Quay lại</Link>}
+            />
+
+            {error ? <ErrorState message={error} /> : null}
+
+            <form onSubmit={onSubmit} className="max-w-2xl space-y-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+                {account ? (
+                    <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 pb-4 dark:border-gray-800">
+                        <StatusBadge value={account.verificationStatus === "VERIFIED" ? "Đã xác minh" : account.verificationStatus === "FAILED" ? "Xác minh lỗi" : "Chưa xác minh"} tone={account.verificationStatus === "VERIFIED" ? "success" : account.verificationStatus === "FAILED" ? "error" : "neutral"} />
+                        <StatusBadge value={account.tradingEnabled ? "Giao dịch bật" : "Giao dịch tắt"} tone={account.tradingEnabled ? "success" : "stopped"} />
+                        <span className="text-xs text-gray-500">ID: {accountId(account)}</span>
+                    </div>
+                ) : null}
+
+                <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Sàn giao dịch</label>
+                    <select
+                        value={platform}
+                        onChange={(event) => setPlatform(event.target.value as Platform)}
+                        disabled={saving}
+                        className="h-11 w-full rounded-lg border border-gray-200 bg-white px-4 text-sm dark:border-gray-800 dark:bg-gray-900"
+                    >
+                        {PLATFORMS.map((value) => <option key={value} value={value}>{value}</option>)}
+                    </select>
+                </div>
+
+                <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Nhãn tài khoản</label>
+                    <input
+                        value={label}
+                        onChange={(event) => setLabel(event.target.value)}
+                        disabled={saving}
+                        className="h-11 w-full rounded-lg border border-gray-200 bg-white px-4 text-sm dark:border-gray-800 dark:bg-gray-900"
+                        placeholder="Ví dụ: Binance chính"
+                    />
+                </div>
+
+                <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">API key</label>
+                    <input
+                        value={apiKey}
+                        onChange={(event) => setApiKey(event.target.value)}
+                        disabled={saving}
+                        className="h-11 w-full rounded-lg border border-gray-200 bg-white px-4 font-mono text-sm dark:border-gray-800 dark:bg-gray-900"
+                    />
+                </div>
+
+                <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Secret key</label>
+                    <input
+                        value={secretKey}
+                        onChange={(event) => setSecretKey(event.target.value)}
+                        disabled={saving}
+                        className="h-11 w-full rounded-lg border border-gray-200 bg-white px-4 font-mono text-sm dark:border-gray-800 dark:bg-gray-900"
+                        placeholder="Để trống nếu không đổi"
+                    />
+                </div>
+
+                {platform === "OKX" ? (
+                    <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Passphrase</label>
+                        <input
+                            value={passphrase}
+                            onChange={(event) => setPassphrase(event.target.value)}
+                            disabled={saving}
+                            className="h-11 w-full rounded-lg border border-gray-200 bg-white px-4 font-mono text-sm dark:border-gray-800 dark:bg-gray-900"
+                            placeholder="Để trống nếu không đổi"
+                        />
+                    </div>
+                ) : null}
+
+                <label className="flex items-center gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-800">
+                    <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} disabled={saving} />
+                    <span>Tài khoản đang hoạt động</span>
+                </label>
+
+                {credentialChanged ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                        Credential hoặc sàn đã thay đổi. Sau khi lưu, trạng thái xác minh sẽ về “Chưa xác minh”, quyền giao dịch bị tắt và cần kiểm tra kết nối lại.
+                    </div>
+                ) : null}
+
+                <div className="flex justify-end gap-3">
+                    <Link href="/accounts" className="rounded-lg border border-gray-200 px-4 py-2 text-sm dark:border-gray-800">Hủy</Link>
+                    <button disabled={!canSubmit} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
+                        {saving ? "Đang lưu..." : "Lưu thay đổi"}
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
 }
