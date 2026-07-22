@@ -31,10 +31,14 @@ export type BotProfile = {
     dailyLossLimitPercent: number;
     maxConcurrentPositions: number;
     maxLeverage: number;
-    maxTradesPerHour?: number;
-    marginType?: "ISOLATED";
-    martingaleEnabled?: boolean;
-    averagingDownEnabled?: boolean;
+    maxPositionsPerSymbol: number;
+    maxTradesPerHour: number;
+    marginType: "ISOLATED";
+    maxMarginPerTradeUsdt: number;
+    maxNotionalPerTradeUsdt: number;
+    maxLossPerTradeUsdt: number;
+    martingaleEnabled: boolean;
+    averagingDownEnabled: boolean;
     productionBaselineAt?: string | null;
     productionBaselineSnapshot?: Record<string, any> | null;
     allowedDirections: BotAllowedDirections;
@@ -61,7 +65,15 @@ export type CreateBotProfilePayload = {
     riskPerTradePercent: number;
     dailyLossLimitPercent: number;
     maxConcurrentPositions: number;
+    maxPositionsPerSymbol: number;
+    maxTradesPerHour: number;
     maxLeverage: number;
+    marginType: "ISOLATED";
+    maxMarginPerTradeUsdt: number;
+    maxNotionalPerTradeUsdt: number;
+    maxLossPerTradeUsdt: number;
+    martingaleEnabled: boolean;
+    averagingDownEnabled: boolean;
     allowedDirections: BotAllowedDirections;
 };
 
