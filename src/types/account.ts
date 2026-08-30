@@ -2,7 +2,14 @@
 import type { Paginated } from "./common";
 
 export type Platform = "BINANCE" | "OKX" | "BINGX";
-export type AccountVerificationStatus = "VERIFIED" | "FAILED" | "NOT_VERIFIED";
+export type AccountEnvironment = "LIVE" | "TESTNET" | "DEMO";
+export type AccountVerificationStatus = "VERIFIED" | "VERIFIED_BUT_INCOMPATIBLE" | "FAILED" | "NOT_VERIFIED";
+export type AccountConnectionTarget =
+    | "BINANCE_PRODUCTION"
+    | "BINANCE_DEMO"
+    | "OKX_PRODUCTION"
+    | "OKX_DEMO"
+    | "BINGX_PRODUCTION";
 
 export interface Account {
     id?: string;
@@ -12,6 +19,8 @@ export interface Account {
 
     crypto_exchange_id: string; // ✅ bắt buộc để filter code theo exchange
     platform: Platform;
+    environment?: AccountEnvironment;
+    connectionTarget?: AccountConnectionTarget | null;
     label: string;
     apiKey: string;
 

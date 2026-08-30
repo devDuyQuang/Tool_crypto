@@ -6,14 +6,27 @@ import { toast } from "react-toastify";
 
 import LoadingModal from "@/components/loadingModal/LoadingModal";
 import { accountsService } from "@/services/accounts.service";
-import type { Platform } from "@/types/account";
+import type { AccountConnectionTarget, Platform } from "@/types/account";
+
+type AccountRunMode = "SANDBOX" | "LIVE";
 
 type FormState = {
     platform: Platform;
+    mode: AccountRunMode;
     apiKey: string;
     secretKey: string;
     passphrase: string;
 };
+
+function connectionTargetFor(platform: Platform, mode: AccountRunMode): AccountConnectionTarget {
+    if (platform === "OKX") return mode === "LIVE" ? "OKX_PRODUCTION" : "OKX_DEMO";
+    if (platform === "BINANCE") return mode === "LIVE" ? "BINANCE_PRODUCTION" : "BINANCE_DEMO";
+    return "BINGX_PRODUCTION";
+}
+
+function modeLabel(mode: AccountRunMode) {
+    return mode === "LIVE" ? "Tài khoản thực tế" : "Tài khoản thử nghiệm";
+}
 
 function genLabel(platform: string, apiKey: string) {
     const p = (platform || "EX").toLowerCase();
@@ -26,7 +39,8 @@ export default function AccountCreatePage() {
     const router = useRouter();
 
     const [form, setForm] = useState<FormState>({
-        platform: "BINANCE",
+        platform: "OKX",
+        mode: "SANDBOX",
         apiKey: "",
         secretKey: "",
         passphrase: "",
@@ -48,6 +62,7 @@ export default function AccountCreatePage() {
             apiKey: form.apiKey.trim(),
             secretKey: form.secretKey.trim(),
             passphrase: form.passphrase.trim() || undefined,
+            connectionTarget: connectionTargetFor(form.platform, form.mode),
         }),
         [form, previewLabel]
     );
@@ -79,12 +94,23 @@ export default function AccountCreatePage() {
         setError(null);
 
         try {
-            await accountsService.create(payload); // ✅ gửi đúng DTO BE
-            toast.success("Tạo tài khoản thành công ✅");
+            const created = await accountsService.create(payload);
+            const id = created._id ?? created.id;
+            if (!id) throw new Error("Backend chưa trả account id để kiểm tra kết nối.");
+            const verified = await accountsService.verify(id);
+            if (!verified.ok) {
+                throw new Error(verified.message || "Không thể xác minh credential.");
+            }
+            try {
+                await accountsService.update(id, { tradingEnabled: true });
+            } catch {
+                // Backend safety guards may keep trading disabled until account/strategy readiness is complete.
+            }
+            toast.success(`Đã kết nối ${modeLabel(form.mode).toLowerCase()} và xác minh thành công`);
             router.push("/accounts");
             router.refresh();
         } catch (err: any) {
-            const msg = err?.message || "Tạo tài khoản thất bại ❌";
+            const msg = err?.message || "Tạo hoặc kiểm tra tài khoản thất bại";
             toast.error(msg);
             setError(msg);
         } finally {
@@ -95,9 +121,12 @@ export default function AccountCreatePage() {
 
     return (
         <div className="max-w-xl space-y-4 text-gray-900 dark:text-gray-100">
-            <LoadingModal open={openModal} text="Đang tạo..." />
+            <LoadingModal open={openModal} text="Đang lưu tài khoản..." />
 
-            <h1 className="text-xl font-semibold">Thêm tài khoản</h1>
+            <h1 className="text-xl font-semibold">Kết nối tài khoản sàn</h1>
+            <p className="text-sm leading-6 text-gray-600 dark:text-gray-300">
+                Nhập API Key, Secret và Passphrase. Hệ thống sẽ tự kiểm tra và chuẩn bị tài khoản này cho bot. Không cần quyền Withdraw.
+            </p>
 
             {error && (
                 <div className="p-3 text-sm rounded-lg bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400">
@@ -114,12 +143,51 @@ export default function AccountCreatePage() {
                         onChange={(e) => setForm((p) => ({ ...p, platform: e.target.value as Platform }))}
                         disabled={openModal}
                     >
-                        {(["BINANCE", "OKX", "BINGX"] as const).map((p) => (
+                        {(["OKX", "BINANCE"] as const).map((p) => (
                             <option key={p} value={p}>
                                 {p}
                             </option>
                         ))}
                     </select>
+                </div>
+
+                <div>
+                    <label className="block mb-2 text-sm">Chế độ tài khoản</label>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {([
+                            {
+                                value: "SANDBOX",
+                                title: "Chạy thử nghiệm (Sandbox)",
+                                description: "Dùng API môi trường thử nghiệm để kiểm tra bot an toàn.",
+                            },
+                            {
+                                value: "LIVE",
+                                title: "Chạy thực tế (Live)",
+                                description: "Dùng API tài khoản thật theo quyền giao dịch đã cấp.",
+                            },
+                        ] as const).map((option) => {
+                            const active = form.mode === option.value;
+                            return (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    disabled={openModal}
+                                    onClick={() => setForm((p) => ({ ...p, mode: option.value }))}
+                                    className={`rounded-lg border p-3 text-left transition ${
+                                        active
+                                            ? "border-brand-500 bg-brand-50 text-gray-950 dark:border-brand-400 dark:bg-brand-500/10 dark:text-white"
+                                            : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300"
+                                    }`}
+                                >
+                                    <div className="text-sm font-semibold">{option.title}</div>
+                                    <div className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{option.description}</div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        Đang lưu dưới dạng {modeLabel(form.mode).toLowerCase()} cho {form.platform}; bot sẽ dùng đúng luồng API theo tài khoản này.
+                    </p>
                 </div>
 
                 {/* ✅ Hiển thị nhãn tự sinh (readonly) */}
@@ -183,7 +251,7 @@ export default function AccountCreatePage() {
                     disabled={!canSubmit}
                     className="px-4 py-2 text-sm rounded-lg bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60"
                 >
-                    {openModal ? "Đang lưu..." : "Lưu"}
+                    {openModal ? "Đang lưu..." : "Lưu tài khoản"}
                 </button>
 
                 {validationError && <p className="text-xs text-red-600">{validationError}</p>}

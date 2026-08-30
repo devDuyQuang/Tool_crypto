@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/product/StatusBadge";
 import { accountsService } from "@/services/accounts.service";
 import type { Account, Platform } from "@/types/account";
 
-const PLATFORMS: Platform[] = ["BINANCE", "OKX", "BINGX"];
+const PLATFORMS: Platform[] = ["BINANCE", "OKX"];
 
 function accountId(account: Account) {
     return account._id ?? account.id ?? "";
@@ -47,7 +47,7 @@ export default function AccountEditPage() {
                 setAccount(item);
                 setPlatform(item.platform);
                 setLabel(item.label ?? "");
-                setApiKey(item.apiKey ?? "");
+                setApiKey("");
                 setIsActive(Boolean(item.isActive));
                 setSecretKey("");
                 setPassphrase("");
@@ -65,10 +65,10 @@ export default function AccountEditPage() {
 
     const credentialChanged = useMemo(() => {
         if (!account) return false;
-        return platform !== account.platform || apiKey.trim() !== account.apiKey || Boolean(secretKey.trim()) || Boolean(passphrase.trim());
+        return platform !== account.platform || Boolean(apiKey.trim()) || Boolean(secretKey.trim()) || Boolean(passphrase.trim());
     }, [account, platform, apiKey, secretKey, passphrase]);
 
-    const canSubmit = Boolean(id && label.trim() && apiKey.trim()) && !saving;
+    const canSubmit = Boolean(id && label.trim()) && !saving;
 
     const onSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -80,9 +80,9 @@ export default function AccountEditPage() {
             const payload: any = {
                 platform,
                 label: label.trim(),
-                apiKey: apiKey.trim(),
                 isActive,
             };
+            if (apiKey.trim()) payload.apiKey = apiKey.trim();
             if (secretKey.trim()) payload.secretKey = secretKey.trim();
             if (platform === "OKX" && passphrase.trim()) payload.passphrase = passphrase.trim();
 
@@ -116,7 +116,7 @@ export default function AccountEditPage() {
             <form onSubmit={onSubmit} className="max-w-2xl space-y-5 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
                 {account ? (
                     <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 pb-4 dark:border-gray-800">
-                        <StatusBadge value={account.verificationStatus === "VERIFIED" ? "Đã xác minh" : account.verificationStatus === "FAILED" ? "Xác minh lỗi" : "Chưa xác minh"} tone={account.verificationStatus === "VERIFIED" ? "success" : account.verificationStatus === "FAILED" ? "error" : "neutral"} />
+                        <StatusBadge value={account.verificationStatus === "VERIFIED" ? "Đã xác minh" : account.verificationStatus === "VERIFIED_BUT_INCOMPATIBLE" ? "Đã xác minh, cần chỉnh account" : account.verificationStatus === "FAILED" ? "Xác minh lỗi" : "Chưa xác minh"} tone={account.verificationStatus === "VERIFIED" ? "success" : account.verificationStatus === "VERIFIED_BUT_INCOMPATIBLE" ? "warning" : account.verificationStatus === "FAILED" ? "error" : "neutral"} />
                         <StatusBadge value={account.tradingEnabled ? "Giao dịch bật" : "Giao dịch tắt"} tone={account.tradingEnabled ? "success" : "stopped"} />
                         <span className="text-xs text-gray-500">ID: {accountId(account)}</span>
                     </div>
@@ -152,12 +152,14 @@ export default function AccountEditPage() {
                         onChange={(event) => setApiKey(event.target.value)}
                         disabled={saving}
                         className="h-11 w-full rounded-lg border border-gray-200 bg-white px-4 font-mono text-sm dark:border-gray-800 dark:bg-gray-900"
+                        placeholder="Để trống nếu không đổi"
                     />
                 </div>
 
                 <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Secret key</label>
                     <input
+                        type="password"
                         value={secretKey}
                         onChange={(event) => setSecretKey(event.target.value)}
                         disabled={saving}
@@ -170,6 +172,7 @@ export default function AccountEditPage() {
                     <div>
                         <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Passphrase</label>
                         <input
+                            type="password"
                             value={passphrase}
                             onChange={(event) => setPassphrase(event.target.value)}
                             disabled={saving}

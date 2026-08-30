@@ -8,6 +8,8 @@ import { EmptyState } from "@/components/product/EmptyState";
 import { LoadingState } from "@/components/product/LoadingState";
 import { PageHeader } from "@/components/product/PageHeader";
 import { StatusBadge } from "@/components/product/StatusBadge";
+import { formatNumber, presentDecision, productStateTone, reasonText } from "@/components/product/decisionPresenter";
+import { formatDateTime, humanLabel } from "@/components/product/humanLabels";
 import { botProfilesService } from "@/services/botProfiles.service";
 import type { BotProfile, DecisionJournal } from "@/types/botProfile";
 
@@ -33,7 +35,7 @@ export default function BotDecisionsPage() {
                 }));
                 setRows(lists.flat().sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 200));
             } catch (e: any) {
-                toast.error(e?.message || "Không tải được Decision Journal");
+                toast.error(e?.message || "Không tải được nhật ký quyết định");
             } finally {
                 setLoading(false);
             }
@@ -46,39 +48,66 @@ export default function BotDecisionsPage() {
     return (
         <div className="space-y-6">
             <PageHeader
-                eyebrow="Bot tự động"
+                eyebrow="Nâng cao"
                 title="Nhật ký quyết định"
-                description="Lưu cả LONG, SHORT, NO_TRADE và acceptance kỹ thuật. Các dòng ACCEPTANCE không được tính vào vận hành tự nhiên."
+                description="Bản đọc dành cho vận hành: ưu tiên bot đang làm gì, raw code nằm trong chi tiết kỹ thuật."
             />
-            {rows.length === 0 ? <EmptyState title="Chưa có decision journal" /> : (
-                <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-                    <table className="w-full min-w-[1320px] text-left text-sm">
-                        <thead className="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-gray-800">
-                            <tr><th className="p-3">Thời gian</th><th className="p-3">Scope</th><th className="p-3">Bot</th><th className="p-3">Symbol</th><th className="p-3">Context</th><th className="p-3">Strategy</th><th className="p-3">Scenario</th><th className="p-3">Setup</th><th className="p-3">Trigger</th><th className="p-3">Opportunity</th><th className="p-3">Decision</th><th className="p-3">Risk</th><th className="p-3">Entry</th><th className="p-3">Invalidation</th><th className="p-3">R:R</th><th className="p-3">Lý do</th></tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                            {rows.map((row) => (
-                                <tr key={row._id ?? `${row.profileId}-${row.symbol}-${row.evaluatedCandleOpenTime}`}>
-                                    <td className="p-3">{row.createdAt ? new Date(row.createdAt).toLocaleString() : row.evaluatedCandleOpenTime}</td>
-                                    <td className="p-3"><StatusBadge value={row.sourceType ?? row.decisionScope ?? "NATURAL"} tone={row.sourceType === "ACCEPTANCE" || row.decisionScope === "ACCEPTANCE" ? "warning" : "success"} /></td>
-                                    <td className="p-3"><Link href={`/bot-profiles/${row.profileId}`} className="font-medium text-brand-600 hover:underline dark:text-brand-400">{row.botName ?? row.profileId}</Link></td>
-                                    <td className="p-3 font-medium text-gray-950 dark:text-white">{row.symbol}</td>
-                                    <td className="p-3">{row.marketContextId?.slice?.(-8) ?? "-"}</td>
-                                    <td className="p-3">{row.prices?.strategyKey ?? "-"}</td>
-                                    <td className="p-3">{row.scenario}</td>
-                                    <td className="p-3">{row.prices?.setupScore != null ? Math.round(row.prices.setupScore * 100) : "-"}</td>
-                                    <td className="p-3">{row.triggerStatus}</td>
-                                    <td className="p-3">{row.prices?.opportunityScore ?? "-"}</td>
-                                    <td className="p-3"><DecisionBadge decision={row.decision} /></td>
-                                    <td className="p-3"><StatusBadge value={row.riskEvaluation?.status ?? "NO_TRADE"} /></td>
-                                    <td className="p-3">{row.prices?.proposedEntry ?? "-"}</td>
-                                    <td className="p-3">{row.prices?.invalidation ?? "-"}</td>
-                                    <td className="p-3">{row.riskEvaluation?.estimatedRiskReward?.toFixed?.(2) ?? "-"}</td>
-                                    <td className="p-3">{row.reasonCodes.slice(0, 4).join(", ") || "-"}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+            {rows.length === 0 ? <EmptyState title="Chưa có nhật ký quyết định" description="Khi bot chạy và ghi nhận thị trường, các quyết định sẽ xuất hiện ở đây." /> : (
+                <div className="space-y-3">
+                    {rows.map((row) => {
+                        const presented = presentDecision(row, null, { ignoreStale: true });
+                        const setup = row.prices?.setupScore != null ? Math.round(row.prices.setupScore * 100) : null;
+                        return (
+                            <article key={row._id ?? `${row.profileId}-${row.symbol}-${row.evaluatedCandleOpenTime}`} className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+                                <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr_auto] lg:items-start">
+                                    <div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Link href={`/bot-profiles/${row.profileId}`} className="font-semibold text-gray-950 hover:text-brand-600 dark:text-white">{row.symbol}</Link>
+                                            <DecisionBadge decision={row.decision} />
+                                            <StatusBadge value={presented.title} tone={productStateTone(presented.state)} />
+                                        </div>
+                                        <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">{row.botName ?? row.profileId} · {formatDateTime(row.createdAt ?? row.evaluatedCandleOpenTime)}</div>
+                                    </div>
+                                    <div className="text-sm leading-6 text-gray-700 dark:text-gray-200">
+                                        <div className="font-medium text-gray-950 dark:text-white">{presented.summary}</div>
+                                        <div className="mt-1 text-gray-500 dark:text-gray-400">{reasonText(row.reasonCodes?.[0])}</div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 text-sm lg:min-w-52">
+                                        <div>
+                                            <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Setup</div>
+                                            <div className="font-semibold text-gray-950 dark:text-white">{setup == null ? "-" : `${setup}/100`}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Opportunity</div>
+                                            <div className="font-semibold text-gray-950 dark:text-white">{row.prices?.opportunityScore ?? "-"}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <details className="mt-4 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+                                    <summary className="cursor-pointer font-medium text-gray-700 dark:text-gray-200">Xem chi tiết</summary>
+                                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                        <div><b>Strategy:</b> {row.prices?.strategyKey ?? "-"}</div>
+                                        <div><b>Scenario:</b> {row.scenario}</div>
+                                        <div><b>Trigger:</b> {humanLabel(row.triggerStatus)}</div>
+                                        <div><b>Risk:</b> {humanLabel(row.riskEvaluation?.status)}</div>
+                                        <div><b>Entry:</b> {formatNumber(row.prices?.proposedEntry)}</div>
+                                        <div><b>Invalidation:</b> {formatNumber(row.prices?.invalidation)}</div>
+                                        <div><b>Target:</b> {formatNumber(row.prices?.targets?.[0])}</div>
+                                        <div><b>R:R:</b> {row.riskEvaluation?.estimatedRiskReward?.toFixed?.(2) ?? "-"}</div>
+                                    </div>
+                                    <div className="mt-4 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.04]">
+                                        <div className="font-semibold text-gray-950 dark:text-white">Chi tiết kỹ thuật</div>
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                            {(row.reasonCodes ?? []).length ? row.reasonCodes.map((code) => (
+                                                <span key={code} className="rounded-md bg-white px-2 py-1 font-mono text-xs text-gray-700 dark:bg-gray-900 dark:text-gray-200">{code}</span>
+                                            )) : <span className="text-gray-500">Không có raw reason code.</span>}
+                                        </div>
+                                    </div>
+                                </details>
+                            </article>
+                        );
+                    })}
                 </div>
             )}
         </div>

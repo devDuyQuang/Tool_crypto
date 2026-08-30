@@ -19,10 +19,10 @@ const accent: Record<NonNullable<MetricCardProps["tone"]>, string> = {
 
 export function MetricCard({ label, value, helper, tone = "neutral" }: MetricCardProps) {
     return (
-        <div className={`rounded-lg border bg-white p-4 dark:bg-white/[0.03] ${accent[tone]}`}>
-            <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</div>
-            <div className="mt-2 text-2xl font-semibold text-gray-950 dark:text-white">{value}</div>
-            {helper ? <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">{helper}</div> : null}
+        <div className={`min-w-0 rounded-lg border bg-white p-3 dark:bg-white/[0.03] ${accent[tone]}`}>
+            <div className="min-w-0 break-words text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">{label}</div>
+            <div className="mt-2 min-w-0 break-words text-xl font-semibold tracking-normal text-gray-950 dark:text-white">{value}</div>
+            {helper ? <div className="mt-2 min-w-0 break-words text-xs text-gray-600 dark:text-gray-300">{helper}</div> : null}
         </div>
     );
 }

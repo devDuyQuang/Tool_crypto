@@ -3,10 +3,8 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
-import { useSidebar } from "@/context/SidebarContext";
 import AppHeader from "@/layout/AppHeader";
-import AppSidebar from "@/layout/AppSidebar";
-import Backdrop from "@/layout/Backdrop";
+import BottomNav from "@/layout/BottomNav";
 
 function logout() {
   localStorage.removeItem("accessToken");
@@ -14,8 +12,6 @@ function logout() {
 }
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { isExpanded, isHovered, isMobileOpen } = useSidebar();
-
   const router = useRouter();
   const [checked, setChecked] = useState(false);
 
@@ -86,20 +82,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!checked) return null;
 
-  const mainContentMargin = isMobileOpen
-    ? "ml-0"
-    : isExpanded || isHovered
-      ? "lg:ml-[290px]"
-      : "lg:ml-[90px]";
-
   return (
-    <div className="min-h-screen xl:flex">
-      <AppSidebar />
-      <Backdrop />
-
-      <div className={`flex-1 transition-all duration-300 ease-in-out ${mainContentMargin}`}>
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
+      <div className="mx-auto min-h-screen w-full max-w-md bg-white shadow-2xl dark:bg-gray-950">
         <AppHeader />
-        <div className="p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6">{children}</div>
+        <main className="p-4 pb-24">{children}</main>
+        <BottomNav />
       </div>
     </div>
   );

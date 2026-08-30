@@ -136,7 +136,7 @@
 // };
 // src/services/accounts.service.ts
 import { apiFetch } from "@/lib/apiFetch";
-import type { Account, AccountVerifyResult, Platform } from "@/types/account";
+import type { Account, AccountConnectionTarget, AccountVerifyResult, Platform } from "@/types/account";
 import type { Paginated } from "@/types/common"
 
 export const accountsService = {
@@ -153,7 +153,7 @@ export const accountsService = {
         return apiFetch<Account>(`/accounts/${id}`);
     },
 
-    create(payload: { platform: Platform; label?: string; apiKey: string; secretKey: string; passphrase?: string }) {
+    create(payload: { platform: Platform; label?: string; apiKey: string; secretKey: string; passphrase?: string; connectionTarget?: AccountConnectionTarget }) {
         return apiFetch<Account>(`/accounts`, {
             method: "POST",
             body: JSON.stringify(payload),

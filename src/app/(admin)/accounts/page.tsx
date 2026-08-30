@@ -9,20 +9,22 @@ import { ErrorState } from "@/components/product/ErrorState";
 import { LoadingState } from "@/components/product/LoadingState";
 import { PageHeader } from "@/components/product/PageHeader";
 import { StatusBadge } from "@/components/product/StatusBadge";
+import { accountEnvironment, environmentLabel, environmentTone } from "@/components/product/decisionPresenter";
 import { accountsService } from "@/services/accounts.service";
 import { botProfilesService } from "@/services/botProfiles.service";
 import type { Account } from "@/types/account";
 import type { BotProfile } from "@/types/botProfile";
 import type { Paginated } from "@/types/common";
 
-function maskKey(key: string) {
-    if (!key) return "-";
-    if (key.length <= 8) return "****";
-    return `${key.slice(0, 4)}****${key.slice(-4)}`;
-}
-
 function accountId(account: Account) {
     return account._id ?? account.id ?? "";
+}
+
+function accountActionError(message?: string) {
+    if (message?.includes("OKX_EXECUTION_NOT_READY")) {
+        return "Tài khoản thử nghiệm đã có engine đặt lệnh, nhưng tài khoản thực tế vẫn cần bật cờ an toàn và duyệt chiến lược riêng.";
+    }
+    return message || "Cập nhật quyền giao dịch thất bại";
 }
 
 type Meta = { page: number; limit: number; total: number; totalPages: number };
@@ -38,9 +40,7 @@ export default function AccountsPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [disableTarget, setDisableTarget] = useState<Account | null>(null);
-    const [verifyingIds, setVerifyingIds] = useState<Set<string>>(new Set());
     const reqIdRef = useRef(0);
-    const verifyingRef = useRef<Set<string>>(new Set());
 
     const query = useMemo(() => search.trim() || undefined, [search]);
     const canPrev = page > 1;
@@ -124,31 +124,6 @@ export default function AccountsPage() {
         }
     };
 
-    const verifyConnection = async (id: string) => {
-        if (verifyingRef.current.has(id)) return;
-        verifyingRef.current.add(id);
-        setVerifyingIds((current) => new Set(current).add(id));
-        try {
-            const result = await accountsService.verify(id);
-            setRows((current) => current.map((account) => accountId(account) === id ? result.account : account));
-            if (result.ok) {
-                toast.success("Đã xác minh kết nối tài khoản");
-            } else {
-                toast.error(`Xác minh thất bại: ${result.message || result.errorCode || "Không rõ lý do"}`);
-            }
-            await fetchData();
-        } catch (e: any) {
-            toast.error(`Xác minh thất bại: ${e?.message || "Không rõ lý do"}`);
-        } finally {
-            verifyingRef.current.delete(id);
-            setVerifyingIds((current) => {
-                const next = new Set(current);
-                next.delete(id);
-                return next;
-            });
-        }
-    };
-
     const setTradingEnabled = async (account: Account, tradingEnabled: boolean) => {
         const id = accountId(account);
         try {
@@ -157,7 +132,7 @@ export default function AccountsPage() {
             toast.success(tradingEnabled ? "Đã bật quyền giao dịch" : "Đã tắt quyền giao dịch");
             await fetchData();
         } catch (e: any) {
-            toast.error(e?.message || "Cập nhật quyền giao dịch thất bại");
+            toast.error(accountActionError(e?.message));
         } finally {
             setLoading(false);
         }
@@ -166,16 +141,16 @@ export default function AccountsPage() {
     return (
         <div className="space-y-6">
             <PageHeader
-                eyebrow="Kết nối"
+                eyebrow="Tài khoản sàn"
                 title="Tài khoản sàn"
-                description="Quản lý kết nối exchange theo platform. Credential được che; tài khoản có lịch sử nên được vô hiệu hóa thay vì hard-delete."
+                description="Gắn API một lần, hệ thống tự kiểm tra khi lưu và dùng tài khoản này cho bot."
                 actions={<Link href="/accounts/create" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">Thêm tài khoản</Link>}
             />
 
             <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03] md:flex-row md:items-center">
                 <input
                     className="h-11 w-full rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100 md:max-w-sm"
-                    placeholder="Tìm nhãn hoặc API key đã che..."
+                    placeholder="Tìm tên tài khoản..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />
@@ -204,17 +179,14 @@ export default function AccountsPage() {
                     <EmptyState title="Chưa có tài khoản sàn" description="Thêm tài khoản sàn để bot có nguồn dữ liệu và cấu hình account rõ ràng." />
                 ) : (
                     <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-                        <table className="w-full min-w-[980px] text-left text-sm">
+                        <table className="w-full min-w-[760px] text-left text-sm">
                             <thead className="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-gray-800">
                                 <tr>
                                     <th className="p-3">Sàn</th>
-                                    <th className="p-3">Nhãn</th>
-                                    <th className="p-3">API key</th>
-                                    <th className="p-3">Verified</th>
-                                    <th className="p-3">Quyền giao dịch</th>
-                                    <th className="p-3">Active</th>
-                                    <th className="p-3">Bot dùng account</th>
-                                    <th className="p-3">Xác minh cuối</th>
+                                    <th className="p-3">Tên tài khoản</th>
+                                    <th className="p-3">Kết nối</th>
+                                    <th className="p-3">Cho phép bot đặt lệnh</th>
+                                    <th className="p-3">Bot đang sử dụng</th>
                                     <th className="p-3 text-right">Thao tác</th>
                                 </tr>
                             </thead>
@@ -224,26 +196,26 @@ export default function AccountsPage() {
                                     const status = account.verificationStatus ?? ((account as any).verified || (account as any).isVerified ? "VERIFIED" : "NOT_VERIFIED");
                                     const verified = status === "VERIFIED";
                                     const failed = status === "FAILED";
-                                    const lastVerifiedAt = account.lastVerifiedAt ?? (account as any).verifiedAt;
-                                    const isVerifying = verifyingIds.has(id);
+                                    const connected = verified || status === "VERIFIED_BUT_INCOMPATIBLE";
                                     return (
                                         <tr key={id}>
-                                            <td className="p-3 font-medium text-gray-950 dark:text-white">{account.platform}</td>
-                                            <td className="p-3 text-gray-700 dark:text-gray-200">{account.label || "-"}</td>
-                                            <td className="p-3 font-mono text-gray-700 dark:text-gray-200">{maskKey(account.apiKey)}</td>
+                                            <td className="p-3">
+                                                <div className="font-medium text-gray-950 dark:text-white">{account.platform}</div>
+                                                <div className="mt-1"><StatusBadge value={environmentLabel(accountEnvironment(account))} tone={environmentTone(accountEnvironment(account))} /></div>
+                                            </td>
+                                            <td className="p-3 text-gray-700 dark:text-gray-200">
+                                                <div>{account.label || account.username || "-"}</div>
+                                                {account.username ? <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{account.username}</div> : null}
+                                            </td>
                                             <td className="p-3">
                                                 <div className="space-y-1">
-                                                    <StatusBadge value={verified ? "Đã xác minh" : failed ? "Xác minh lỗi" : "Chưa xác minh"} tone={verified ? "success" : failed ? "error" : "neutral"} />
-                                                    {failed && account.lastVerificationMessage ? (
-                                                        <div className="max-w-48 truncate text-xs text-rose-600 dark:text-rose-300" title={account.lastVerificationMessage}>
-                                                            {account.lastVerificationMessage}
-                                                        </div>
-                                                    ) : null}
+                                                    <StatusBadge value={connected ? "Đã kết nối" : failed ? "Kết nối lỗi" : "Đang chờ"} tone={connected ? "success" : failed ? "error" : "neutral"} />
+                                                    <StatusBadge value={environmentLabel(accountEnvironment(account))} tone={environmentTone(accountEnvironment(account))} />
                                                 </div>
                                             </td>
                                             <td className="p-3">
                                                 <div className="flex items-center gap-2">
-                                                    <StatusBadge value={account.tradingEnabled ? "Bật" : "Tắt"} tone={account.tradingEnabled ? "success" : "stopped"} />
+                                                    <StatusBadge value={account.tradingEnabled ? "Bot được đặt lệnh" : "Bot không được đặt lệnh"} tone={account.tradingEnabled ? "success" : "stopped"} />
                                                     <button
                                                         disabled={!verified || !account.isActive || loading}
                                                         onClick={() => setTradingEnabled(account, !account.tradingEnabled)}
@@ -253,24 +225,20 @@ export default function AccountsPage() {
                                                     </button>
                                                 </div>
                                             </td>
-                                            <td className="p-3"><StatusBadge value={account.isActive ? "ACTIVE" : "DISABLED"} tone={account.isActive ? "success" : "stopped"} /></td>
                                             <td className="p-3">{botCountByAccount[id] ?? 0}</td>
-                                            <td className="p-3">{lastVerifiedAt ? new Date(lastVerifiedAt).toLocaleString() : "-"}</td>
                                             <td className="p-3">
                                                 <div className="flex justify-end gap-3">
-                                                    <button
-                                                        disabled={isVerifying || !account.isActive}
-                                                        onClick={() => verifyConnection(id)}
-                                                        className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:text-gray-400 dark:text-brand-400"
-                                                    >
-                                                        {isVerifying ? "Đang kiểm tra..." : "Kiểm tra kết nối"}
-                                                    </button>
-                                                    <Link href={`/accounts/${id}/edit`} className="text-brand-600 hover:underline dark:text-brand-400">Chỉnh sửa</Link>
-                                                    {account.isActive ? (
-                                                        <button onClick={() => setDisableTarget(account)} className="text-rose-600 hover:underline dark:text-rose-400">Vô hiệu hóa</button>
-                                                    ) : (
-                                                        <button onClick={() => onEnable(id)} className="text-emerald-600 hover:underline dark:text-emerald-400">Kích hoạt</button>
-                                                    )}
+                                                    <details className="relative">
+                                                        <summary className="cursor-pointer list-none text-gray-500">...</summary>
+                                                        <div className="absolute right-0 z-20 mt-2 w-36 rounded-lg border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-800 dark:bg-gray-900">
+                                                            <Link href={`/accounts/${id}/edit`} className="block rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-white/[0.05]">Chỉnh sửa</Link>
+                                                            {account.isActive ? (
+                                                                <button onClick={() => setDisableTarget(account)} className="block w-full rounded-md px-3 py-2 text-left text-sm text-rose-600 hover:bg-gray-50 dark:text-rose-400 dark:hover:bg-white/[0.05]">Vô hiệu hóa</button>
+                                                            ) : (
+                                                                <button onClick={() => onEnable(id)} className="block w-full rounded-md px-3 py-2 text-left text-sm text-emerald-600 hover:bg-gray-50 dark:text-emerald-400 dark:hover:bg-white/[0.05]">Kích hoạt</button>
+                                                            )}
+                                                        </div>
+                                                    </details>
                                                 </div>
                                             </td>
                                         </tr>

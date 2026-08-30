@@ -8,13 +8,13 @@ export default function ProtectionIncidentsPage() {
     return (
         <div className="space-y-6">
             <PageHeader
-                eyebrow="Giao dịch"
+                eyebrow="Nâng cao"
                 title="Sự cố bảo vệ"
-                description="Theo dõi các tình huống position thiếu SL/TP hoặc cần reconciliation. Không có hành động execute trong màn hình này."
+                description="Theo dõi các vị thế có thể thiếu Stop Loss/Take Profit hoặc cần kiểm tra đồng bộ. Không có hành động đặt lệnh trong màn hình này."
             />
             <EmptyState
-                title="Chưa có màn hình incident chuyên dụng"
-                description="Phase này chỉ đổi frontend product surface. Dữ liệu protection chi tiết vẫn xem trong khu Vị thế & lệnh."
+                title="Chưa có sự cố bảo vệ chuyên dụng"
+                description="Nếu vị thế thiếu bảo vệ, hãy xem trang Đang mở. Raw reconciliation/protection metadata nằm trong Chi tiết kỹ thuật của từng lệnh."
                 action={<Link href="/orders" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Mở Vị thế & lệnh</Link>}
             />
         </div>

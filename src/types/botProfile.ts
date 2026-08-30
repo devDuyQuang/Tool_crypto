@@ -1,7 +1,9 @@
-import type { Platform } from "./account";
+import type { AccountEnvironment, Platform } from "./account";
 
 export type BotProfileStatus = "RUNNING" | "PAUSED" | "STOPPED" | "ARCHIVED";
 export type BotAllowedDirections = "LONG" | "SHORT" | "BOTH";
+export type BotSymbolMode = "MANUAL" | "AUTO";
+export type ProductRiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
 export type SymbolUniverse = {
     _id: string;
@@ -25,6 +27,10 @@ export type BotProfile = {
     accountId: string;
     status: BotProfileStatus;
     platform: Platform;
+    environment?: AccountEnvironment;
+    symbolMode?: BotSymbolMode;
+    maxAutoSymbols?: number;
+    maxNewEntriesPerScan?: number;
     contextTimeframes: string[];
     triggerTimeframe: string;
     riskPerTradePercent: number;
@@ -60,6 +66,9 @@ export type CreateBotProfilePayload = {
     description?: string | null;
     accountId: string;
     status?: BotProfileStatus;
+    symbolMode?: BotSymbolMode;
+    maxAutoSymbols?: number;
+    maxNewEntriesPerScan?: number;
     contextTimeframes: string[];
     triggerTimeframe: string;
     riskPerTradePercent: number;
@@ -224,6 +233,29 @@ export type RuntimeStatus = {
     runtimeEnabled: boolean;
     lastRun?: RuntimeRun | null;
     nextScan?: string | null;
+    universe?: {
+        mode: BotSymbolMode;
+        source: string;
+        universeSize: number;
+        universeLastRefreshedAt?: string | null;
+    };
+    today?: {
+        scansToday: number;
+        symbolsScannedToday: number;
+        candidatesToday: number;
+        setupsToday: number;
+        entryReadyToday: number;
+        tradesToday: number;
+        riskBlockedToday: number;
+        executionBlockedToday: number;
+        topNearMisses: Array<[string, number]> | Array<{ reason: string; count: number }>;
+        latestActivity?: string | null;
+    };
+    executionReadiness?: {
+        strategyGate?: string;
+        production?: string;
+        dailyPnlStatus?: string;
+    };
     baseline?: {
         productionBaselineAt?: string | null;
         scope: "ALL_HISTORY" | "CURRENT_BASELINE";
@@ -241,6 +273,32 @@ export type RuntimeStatus = {
         }>;
     };
     latestDecisions: DecisionJournal[];
+};
+
+export type ProductRiskPreset = {
+    riskPerTradePercent: number;
+    dailyLossLimitPercent: number;
+};
+
+export type ProductBotDefaults = {
+    symbolMode: "AUTO";
+    maxAutoSymbols: number;
+    maxNewEntriesPerScan: 1;
+    contextTimeframes: string[];
+    triggerTimeframe: string;
+    allowedDirections: BotAllowedDirections;
+    marginType: "ISOLATED";
+    maxConcurrentPositions: number;
+    maxPositionsPerSymbol: number;
+    maxTradesPerHour: number;
+    maxLeverage: number;
+    maxMarginPerTradeUsdt: number;
+    maxNotionalPerTradeUsdt: number;
+    maxLossPerTradeUsdt: number;
+    martingaleEnabled: boolean;
+    averagingDownEnabled: boolean;
+    defaultRiskLevel: ProductRiskLevel;
+    riskPresets: Record<ProductRiskLevel, ProductRiskPreset>;
 };
 
 export type DecisionOutcomeStatus =

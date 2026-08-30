@@ -12,12 +12,32 @@ import { MetricCard } from "@/components/product/MetricCard";
 import { PageHeader } from "@/components/product/PageHeader";
 import { StatusBadge } from "@/components/product/StatusBadge";
 import { SymbolContextCard } from "@/components/product/SymbolContextCard";
+import {
+    accountEnvironment,
+    activePositionText,
+    botEnvironment,
+    environmentLabel,
+    environmentTone,
+    formatNullableValue,
+    formatMoneyValue,
+    formatNumber,
+    presentDecision,
+    productStatusMessage,
+    productStateTone,
+    reasonText,
+    riskStatusText,
+} from "@/components/product/decisionPresenter";
+import { formatDateTime, humanLabel } from "@/components/product/humanLabels";
+import { accountsService } from "@/services/accounts.service";
 import { botProfilesService } from "@/services/botProfiles.service";
+import { executedTradesService } from "@/services/executedTrades.service";
+import type { Account } from "@/types/account";
 import type { BotProfile, DecisionJournal, DecisionOutcome, DecisionPerformance, MarketContextRunResult, ObservationRunResult, RuntimeRun, RuntimeStatus } from "@/types/botProfile";
+import type { ExecutedTrade } from "@/types/executedTrade";
 
 const inputClass = "h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100";
-const tabs = ["Tổng quan", "Thị trường", "Quyết định", "Kết quả mô phỏng", "Rủi ro", "Hoạt động", "Cấu hình"] as const;
-type Tab = typeof tabs[number];
+const tabs = ["Tổng quan", "Giao dịch", "Hiệu suất", "Cấu hình"] as const;
+type Tab = string;
 
 function describeScenario(scenario?: string) {
     if (!scenario || scenario === "NO_SCENARIO") return "Chưa có kịch bản đủ điều kiện";
@@ -28,16 +48,11 @@ function describeScenario(scenario?: string) {
     return scenario;
 }
 
-function describeDecision(decision?: string) {
-    if (decision === "LONG") return "Có thiết lập mua giả lập, chỉ ghi journal";
-    if (decision === "SHORT") return "Có thiết lập bán giả lập, chỉ ghi journal";
-    return "Không giao dịch là kết quả bình thường khi điều kiện chưa đủ";
-}
-
 export default function BotProfileDetailPage() {
     const params = useParams<{ id: string }>();
     const id = params.id;
     const [profile, setProfile] = useState<BotProfile | null>(null);
+    const [account, setAccount] = useState<Account | null>(null);
     const [symbol, setSymbol] = useState("");
     const [priority, setPriority] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -51,6 +66,7 @@ export default function BotProfileDetailPage() {
     const [decisions, setDecisions] = useState<DecisionJournal[]>([]);
     const [outcomes, setOutcomes] = useState<DecisionOutcome[]>([]);
     const [performance, setPerformance] = useState<DecisionPerformance | null>(null);
+    const [executedTrades, setExecutedTrades] = useState<ExecutedTrade[]>([]);
     const [runtimeBusy, setRuntimeBusy] = useState(false);
     const [outcomeBusy, setOutcomeBusy] = useState(false);
     const [activeTab, setActiveTab] = useState<Tab>("Tổng quan");
@@ -61,12 +77,14 @@ export default function BotProfileDetailPage() {
         try {
             const nextProfile = await botProfilesService.findOne(id);
             setProfile(nextProfile);
+            accountsService.findOne(nextProfile.accountId).then(setAccount).catch(() => setAccount(null));
             await Promise.all([
                 botProfilesService.runtimeStatus(id).then(setRuntimeStatus).catch(() => setRuntimeStatus(null)),
                 botProfilesService.decisions(id).then(setDecisions).catch(() => setDecisions([])),
                 botProfilesService.runtimeRuns(id).then(setRuntimeRuns).catch(() => setRuntimeRuns([])),
                 botProfilesService.outcomes(id).then(setOutcomes).catch(() => setOutcomes([])),
                 botProfilesService.performance(id).then(setPerformance).catch(() => setPerformance(null)),
+                executedTradesService.findByBotProfile(id, { page: 1, limit: 30 }).then((res) => setExecutedTrades(res.data ?? [])).catch(() => setExecutedTrades([])),
             ]);
         } catch (e: any) {
             const message = e?.message || "Không tải được bot";
@@ -88,6 +106,11 @@ export default function BotProfileDetailPage() {
     const outcomeByDecision = useMemo(() => new Map(outcomes.map((outcome) => [outcome.decisionJournalId, outcome])), [outcomes]);
     const archived = profile?.status === "ARCHIVED";
     const canStart = !archived && profile?.status !== "RUNNING";
+    const openPositions = runtimeStatus?.protectionSummary?.activePositions ?? [];
+    const presentedDecision = presentDecision(latestDecision, runtimeStatus);
+    const today = runtimeStatus?.today;
+    const universe = runtimeStatus?.universe;
+    const latestClosedTrade = executedTrades.find((trade) => trade.status === "CLOSED");
 
     const addSymbol = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -138,7 +161,7 @@ export default function BotProfileDetailPage() {
         try {
             const result = await botProfilesService.observeOnce(id);
             setObservation(result);
-            setActiveTab("Thị trường");
+            setActiveTab("Cấu hình");
             toast.success("Đã quan sát dữ liệu một lần");
         } catch (e: any) {
             toast.error(e?.message || "Quan sát dữ liệu thất bại");
@@ -152,7 +175,7 @@ export default function BotProfileDetailPage() {
         try {
             const result = await botProfilesService.evaluateContextOnce(id);
             setMarketContext(result);
-            setActiveTab("Thị trường");
+            setActiveTab("Cấu hình");
             toast.success("Đã đánh giá bối cảnh");
         } catch (e: any) {
             toast.error(e?.message || "Đánh giá bối cảnh thất bại");
@@ -185,7 +208,7 @@ export default function BotProfileDetailPage() {
             ]);
             setOutcomes(nextOutcomes);
             setPerformance(nextPerformance);
-            setActiveTab("Kết quả mô phỏng");
+            setActiveTab("Hiệu suất");
         } catch (e: any) {
             toast.error(e?.message || "Đánh giá outcome thất bại");
         } finally {
@@ -198,7 +221,7 @@ export default function BotProfileDetailPage() {
         try {
             const result = await botProfilesService.replay(id);
             setPerformance(result);
-            setActiveTab("Kết quả mô phỏng");
+            setActiveTab("Hiệu suất");
             toast.success("Đã chạy historical replay read-only");
         } catch (e: any) {
             toast.error(e?.message || "Replay thất bại");
@@ -215,29 +238,27 @@ export default function BotProfileDetailPage() {
         <div className="space-y-6">
             <PageHeader
                 backHref="/bot-profiles"
-                eyebrow="Bot tự động"
+                eyebrow="Bot của tôi"
                 title={profile.name}
-                description={profile.description || "Console vận hành bot. Execution chỉ đi qua runtime/OMS; màn hình này không đặt lệnh thủ công."}
+                description={`${profile.platform} · ${profile.symbolMode === "AUTO" ? `AUTO universe tối đa ${profile.maxAutoSymbols ?? 20} thị trường` : enabledSymbols.map((item) => item.symbol).join(", ") || "Chưa chọn coin"}`}
                 actions={
-                    <>
-                        <Link href={`/bot-profiles/${id}/edit`} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-white/[0.05]">Chỉnh sửa</Link>
-                        <button disabled={!canStart || runtimeBusy} onClick={() => runtimeAction("start")} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700">START</button>
-                        <button disabled={archived || runtimeBusy} onClick={() => runtimeAction("pause")} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-medium text-amber-700 disabled:opacity-50 dark:border-amber-800 dark:text-amber-300">PAUSE</button>
-                        <button disabled={archived || runtimeBusy} onClick={() => runtimeAction("stop")} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200">STOP</button>
-                    </>
+                    profile.status === "RUNNING"
+                        ? <button disabled={archived || runtimeBusy} onClick={() => runtimeAction("stop")} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">DỪNG BOT</button>
+                        : <button disabled={!canStart || runtimeBusy} onClick={() => runtimeAction("start")} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700">BẬT BOT</button>
                 }
             />
 
             <div className="flex flex-wrap gap-2">
                 <StatusBadge value={profile.status} />
-                <StatusBadge value={profile.platform} />
+                <StatusBadge value={environmentLabel(accountEnvironment(account) ?? botEnvironment(profile))} tone={environmentTone(accountEnvironment(account) ?? botEnvironment(profile))} />
+                {profile.description ? <span className="text-sm text-gray-500 dark:text-gray-400">{profile.description}</span> : null}
             </div>
 
-            <div className="grid gap-4 md:grid-cols-4">
-                <MetricCard label="Symbol enabled" value={enabledSymbols.length} helper={enabledSymbols.map((item) => item.symbol).join(", ") || "Chưa có"} tone="dry" />
-                <MetricCard label="Runtime" value={runtimeStatus?.status || profile.status} helper={runtimeStatus?.runtimeEnabled ? "AUTO_RUNTIME_V2_ENABLED=true" : "Runtime flag đang khóa"} tone={runtimeStatus?.status === "RUNNING" ? "success" : "neutral"} />
-                <MetricCard label="Quyết định mới nhất" value={latestDecision ? <DecisionBadge decision={latestDecision.decision} /> : "Chưa có"} helper={latestDecision ? `${latestDecision.symbol}${latestDecision.isOldDecision ? " · Quyết định cũ" : ""}` : "Chưa có tín hiệu giao dịch mới"} />
-                <MetricCard label="Lỗi runtime" value={runtimeStatus?.lastRun?.errorSummaries?.length || 0} helper="Lần quét gần nhất" tone={runtimeStatus?.lastRun?.errorSummaries?.length ? "error" : "success"} />
+            <div className="grid w-full grid-cols-2 gap-3">
+                <MetricCard label="Lời/lỗ gần nhất" value={formatMoneyValue(latestClosedTrade?.netPnl ?? null, "Chưa có dữ liệu")} helper="Chỉ tính ExecutedTrade thật" tone="dry" />
+                <MetricCard label="Vị thế mở" value={activePositionText(runtimeStatus)} tone={openPositions.length ? "warning" : "success"} />
+                <MetricCard label="Rủi ro hiện tại" value={riskStatusText(runtimeStatus)} tone={riskStatusText(runtimeStatus).includes("Cần") ? "error" : "success"} />
+                <MetricCard label="Giao dịch hôm nay" value={today?.tradesToday ?? 0} helper="Không tính DecisionOutcome là trade thật" tone="dry" />
             </div>
 
             <div className="overflow-x-auto border-b border-gray-200 dark:border-gray-800">
@@ -251,42 +272,136 @@ export default function BotProfileDetailPage() {
             </div>
 
             {activeTab === "Tổng quan" ? (
-                <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-                    <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                        <h2 className="text-lg font-semibold text-gray-950 dark:text-white">Trạng thái vận hành</h2>
-                        <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-                            <div><b>Tài khoản:</b> {profile.platform}</div>
-                            <div><b>Last run:</b> {runtimeStatus?.lastRun?.startedAt ? new Date(runtimeStatus.lastRun.startedAt).toLocaleString() : "-"}</div>
-                            <div><b>Next scan:</b> {runtimeStatus?.nextScan ? new Date(runtimeStatus.nextScan).toLocaleString() : "-"}</div>
-                            <div><b>LONG:</b> {runtimeStatus?.decisionCounts?.LONG || 0}</div>
-                            <div><b>SHORT:</b> {runtimeStatus?.decisionCounts?.SHORT || 0}</div>
-                            <div><b>NO_TRADE:</b> {runtimeStatus?.decisionCounts?.NO_TRADE || 0}</div>
-                            <div><b>Strategy:</b> Scalping V2</div>
-                            <div><b>Scope:</b> {runtimeStatus?.baseline?.scope ?? "ALL_HISTORY"}</div>
-                        </div>
-                        <div className="mt-5 flex flex-wrap gap-2">
-                            <button disabled={archived || observing} onClick={observeOnce} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Quan sát dữ liệu một lần</button>
-                            <button disabled={archived || evaluatingContext} onClick={evaluateContextOnce} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50 dark:border-gray-800 dark:text-gray-200">Đánh giá bối cảnh một lần</button>
-                            <button disabled={!canStart || runtimeBusy} onClick={() => runtimeAction("runDryOnce")} className="rounded-lg border border-sky-200 px-4 py-2 text-sm font-medium text-sky-700 disabled:opacity-50 dark:border-sky-800 dark:text-sky-300">Chạy một vòng kiểm tra</button>
-                            <button disabled={outcomeBusy} onClick={evaluateOutcomes} className="rounded-lg border border-emerald-200 px-4 py-2 text-sm font-medium text-emerald-700 disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300">Đánh giá kết quả mô phỏng</button>
-                        </div>
-                    </section>
-                    <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-                        <h2 className="text-lg font-semibold text-gray-950 dark:text-white">Quyết định gần nhất</h2>
-                        {latestDecision ? (
-                            <div className="mt-4 space-y-3 text-sm text-gray-700 dark:text-gray-200">
-                                <div className="flex items-center gap-2"><DecisionBadge decision={latestDecision.decision} /><span>{describeDecision(latestDecision.decision)}</span></div>
-                                {latestDecision.isOldDecision ? <StatusBadge value="Quyết định cũ" tone="warning" /> : null}
-                                <div><b>Symbol:</b> {latestDecision.symbol}</div>
-                                <div><b>Scenario:</b> {describeScenario(latestDecision.scenario)}</div>
-                                <div><b>Strategy:</b> {latestDecision.prices?.strategyKey ?? "-"}</div>
-                                <div><b>Opportunity:</b> {latestDecision.prices?.opportunityScore ?? "-"} / 100</div>
-                                <div><b>Trigger:</b> {latestDecision.triggerStatus}</div>
-                                <div><b>Risk:</b> {latestDecision.riskEvaluation?.status ?? "-"}</div>
+                <div className="space-y-6">
+                    <section className="w-full overflow-hidden rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+                        <div className="flex w-full flex-col gap-3">
+                            <div className="min-w-0">
+                                <h2 className="text-lg font-semibold text-gray-950 dark:text-white">BOT ĐANG LÀM GÌ?</h2>
+                                <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">{presentedDecision.summary}</p>
+                                <p className="mt-2 text-sm font-medium text-gray-800 dark:text-gray-100">{productStatusMessage(profile, runtimeStatus)}</p>
                             </div>
-                        ) : <EmptyState title="Chưa có tín hiệu giao dịch mới" description="Runtime chưa ghi natural decision nào sau baseline hiện tại." />}
+                            <div className="min-w-0">
+                                <StatusBadge value={presentedDecision.title} tone={productStateTone(presentedDecision.state)} />
+                            </div>
+                        </div>
+                        <div className="mt-4 grid w-full grid-cols-1 gap-3 text-sm">
+                            <div className="min-w-0 break-words"><b>Hoạt động:</b> {profile.status === "RUNNING" ? "Đang quét thị trường" : humanLabel(profile.status)}</div>
+                            <div className="min-w-0 break-words"><b>Vị thế:</b> {activePositionText(runtimeStatus)}</div>
+                            <div className="min-w-0 break-words"><b>Rủi ro:</b> {riskStatusText(runtimeStatus)}</div>
+                        </div>
+                        <div className="mt-5 grid w-full grid-cols-2 gap-3">
+                            <MetricCard label="Universe" value={universe?.universeSize ?? enabledSymbols.length} helper={`${universe?.mode ?? profile.symbolMode ?? "MANUAL"} · ${universe?.source ?? "MANUAL"}`} />
+                            <MetricCard label="Lượt scan hôm nay" value={today?.scansToday ?? 0} helper={`${today?.symbolsScannedToday ?? 0} symbol-scans`} />
+                            <MetricCard label="Candidate / Setup" value={`${today?.candidatesToday ?? 0} / ${today?.setupsToday ?? 0}`} />
+                            <MetricCard label="Entry ready / Trade" value={`${today?.entryReadyToday ?? 0} / ${today?.tradesToday ?? 0}`} />
+                            <MetricCard label="Risk blocked" value={today?.riskBlockedToday ?? 0} tone={(today?.riskBlockedToday ?? 0) > 0 ? "warning" : "success"} />
+                            <MetricCard label="Execution blocked" value={today?.executionBlockedToday ?? 0} tone={(today?.executionBlockedToday ?? 0) > 0 ? "warning" : "success"} />
+                        </div>
+                        {(today?.topNearMisses?.length ?? 0) > 0 ? (
+                            <div className="mt-5 rounded-lg bg-gray-50 p-4 text-sm dark:bg-white/[0.04]">
+                                <div className="font-semibold text-gray-950 dark:text-white">Gần đạt điều kiện</div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                    {today?.topNearMisses.slice(0, 5).map((item: any, index) => {
+                                        const label = Array.isArray(item) ? `${item[0]} · ${item[1]}` : `${item.reason ?? "-"} · ${item.count ?? 0}`;
+                                        return <span key={`${label}-${index}`} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-700 dark:bg-gray-900 dark:text-gray-200">{label}</span>;
+                                    })}
+                                </div>
+                            </div>
+                        ) : null}
+                        {profile.status === "RUNNING" ? (
+                            <div className="mt-5 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm leading-6 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                Hệ thống đang quét bối cảnh thị trường real-time và chờ tín hiệu đạt điểm chuẩn...
+                            </div>
+                        ) : null}
+                    </section>
+
+                    {openPositions.length ? (
+                        <section className="w-full overflow-hidden rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+                            <h2 className="text-lg font-semibold text-gray-950 dark:text-white">Vị thế đang mở</h2>
+                            <div className="mt-4 flex w-full flex-col space-y-2">
+                                {openPositions.map((position) => (
+                                    <div key={position.orderPlanId ?? position.symbol} className="flex w-full flex-col space-y-2 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+                                        <div className="flex w-full flex-col space-y-2">
+                                            <div className="min-w-0 break-words font-semibold text-gray-950 dark:text-white">{position.symbol}</div>
+                                            <div>
+                                                <DecisionBadge decision={position.direction} />
+                                            </div>
+                                        </div>
+                                        <div className="flex w-full flex-col space-y-2 text-gray-600 dark:text-gray-300">
+                                            <div className="min-w-0 break-words">Size: <b>{formatNumber(position.quantity)}</b></div>
+                                            <div className="min-w-0 break-words">Bảo vệ: <b>{humanLabel(position.protectionState)}</b></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    ) : null}
+
+                    <section className="w-full overflow-hidden rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+                        <h2 className="text-lg font-semibold text-gray-950 dark:text-white">Tín hiệu gần nhất</h2>
+                        {latestDecision ? (
+                            <div className="mt-4 flex w-full flex-col space-y-3 text-sm text-gray-700 dark:text-gray-200">
+                                <div className="flex w-full flex-col gap-2">
+                                    <DecisionBadge decision={latestDecision.decision} />
+                                    <span className="min-w-0 break-words">{presentedDecision.title}</span>
+                                </div>
+                                {latestDecision.isOldDecision ? <StatusBadge value="Quyết định cũ" tone="warning" /> : null}
+                                <div className="min-w-0 break-words"><b>Coin:</b> {latestDecision.symbol}</div>
+                                <div className="min-w-0 break-words"><b>Diễn giải:</b> {presentedDecision.summary}</div>
+                                <div className="min-w-0 break-words"><b>Điểm cơ hội:</b> {latestDecision.prices?.opportunityScore ?? "-"} / 100</div>
+                                <div className="min-w-0 break-words"><b>Lý do chính:</b> {reasonText(latestDecision.reasonCodes?.[0])}</div>
+                            </div>
+                        ) : <EmptyState title="Đang quan sát thị trường" description="Bot chưa ghi nhận tín hiệu mới sau baseline hiện tại." />}
                     </section>
                 </div>
+            ) : null}
+
+            {activeTab === "Giao dịch" ? (
+                <section className="space-y-4">
+                    <div className="grid w-full grid-cols-1 gap-3">
+                        <MetricCard label="Vị thế đang mở" value={openPositions.length ? "Có" : "Không"} tone={openPositions.length ? "warning" : "success"} />
+                        <MetricCard label="ExecutedTrade" value={executedTrades.length} helper="Ledger thực tế từ fill/position" />
+                        <MetricCard label="PnL gần nhất" value={formatMoneyValue(latestClosedTrade?.netPnl ?? null, "Chưa có dữ liệu")} tone="dry" />
+                    </div>
+                    <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+                        <table className="w-full min-w-[1120px] text-left text-sm">
+                            <thead className="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-gray-800">
+                                <tr><th className="p-3">Entry</th><th className="p-3">Coin</th><th className="p-3">Hướng</th><th className="p-3">Status</th><th className="p-3">Entry px</th><th className="p-3">Exit</th><th className="p-3">Exit reason</th><th className="p-3">Fees</th><th className="p-3">Net PnL</th><th className="p-3">R</th><th className="p-3">Bảo vệ</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                                {executedTrades.length === 0 ? (
+                                    <tr><td colSpan={11} className="p-5 text-gray-500">Chưa có ExecutedTrade thật. DecisionOutcome/replay không được hiển thị như lịch sử giao dịch.</td></tr>
+                                ) : executedTrades.map((trade) => (
+                                    <tr key={trade.id}>
+                                        <td className="p-3">{formatDateTime(trade.entryTime)}</td>
+                                        <td className="p-3 font-medium text-gray-950 dark:text-white">{trade.symbol}</td>
+                                        <td className="p-3"><DecisionBadge decision={trade.direction} /></td>
+                                        <td className="p-3"><StatusBadge value={trade.status} /></td>
+                                        <td className="p-3">{formatNullableValue(trade.entryAvgPrice)}</td>
+                                        <td className="p-3">{trade.exitTime ? `${formatDateTime(trade.exitTime)} · ${formatNullableValue(trade.exitAvgPrice)}` : "Chưa có dữ liệu"}</td>
+                                        <td className="p-3">{trade.exitReason ?? "Chưa có dữ liệu"}</td>
+                                        <td className="p-3">{formatNullableValue(trade.fees, " USDT")}</td>
+                                        <td className="p-3">{formatNullableValue(trade.netPnl, " USDT")}</td>
+                                        <td className="p-3">{formatNullableValue(trade.realizedR, " R")}</td>
+                                        <td className="p-3">{trade.protectionStatus ?? "Chưa có dữ liệu"}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            ) : null}
+
+            {activeTab === "Hiệu suất" ? (
+                <section className="space-y-5">
+                    <div className="grid w-full grid-cols-2 gap-3">
+                        <MetricCard label="Lời/lỗ hôm nay" value="Chưa có nguồn PnL thực tế" helper="Hiệu suất bên dưới là outcome/replay" tone="dry" />
+                        <MetricCard label="Tổng kết mô phỏng" value={performance?.totals.netR?.toFixed?.(2) ?? "0.00"} helper="Net R" tone={(performance?.totals.netR ?? 0) >= 0 ? "success" : "error"} />
+                        <MetricCard label="Tỷ lệ thắng" value={`${Math.round((performance?.totals.winRate ?? 0) * 100)}%`} />
+                        <MetricCard label="Số mẫu" value={performance?.totals.sampleSize ?? 0} />
+                    </div>
+                    <button disabled={outcomeBusy} onClick={evaluateOutcomes} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Cập nhật hiệu suất</button>
+                </section>
             ) : null}
 
             {activeTab === "Thị trường" ? (
@@ -327,7 +442,7 @@ export default function BotProfileDetailPage() {
                     </section>
 
                     {marketContext?.results?.length ? (
-                        <div className="grid gap-4 lg:grid-cols-3">
+                        <div className="grid w-full grid-cols-1 gap-4">
                             {marketContext.results.map((context) => <SymbolContextCard key={`${context.symbol}-${context.snapshotId}`} context={context} />)}
                         </div>
                     ) : <EmptyState title="Chưa có Market Context trong phiên giao diện này" description="Bấm Đánh giá bối cảnh một lần hoặc xem Decision Journal để biết context đã dùng trong runtime." />}
@@ -411,7 +526,7 @@ export default function BotProfileDetailPage() {
                             <button disabled={outcomeBusy} onClick={replay} className="rounded-lg border border-sky-300 px-4 py-2 text-sm font-medium text-sky-800 disabled:opacity-50 dark:border-sky-800 dark:text-sky-200">Replay read-only</button>
                         </div>
                     </div>
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid w-full grid-cols-2 gap-3">
                         <MetricCard label="Decisions evaluated" value={performance?.totals.totalEvaluations ?? outcomes.length} helper={`${performance?.totals.sampleSize ?? 0} mẫu performance chính`} />
                         <MetricCard label="Entry touched" value={performance?.totals.entryTouched ?? outcomes.filter((item) => item.entryTouchedAt).length} />
                         <MetricCard label="Win / Loss" value={`${performance?.totals.targetHit ?? 0} / ${performance?.totals.stopHit ?? 0}`} helper={`Win rate ${Math.round((performance?.totals.winRate ?? 0) * 100)}%`} />
@@ -426,7 +541,7 @@ export default function BotProfileDetailPage() {
                             Sample size còn nhỏ. Không nên kết luận strategy chỉ từ nhóm dữ liệu này.
                         </div>
                     ) : null}
-                    <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="grid w-full grid-cols-1 gap-4">
                         <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
                             <h3 className="font-semibold text-gray-950 dark:text-white">Replay theo strategy</h3>
                             <div className="mt-3 space-y-2 text-sm">
@@ -483,7 +598,7 @@ export default function BotProfileDetailPage() {
             ) : null}
 
             {activeTab === "Rủi ro" ? (
-                <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <section className="grid w-full grid-cols-2 gap-3">
                     <MetricCard label="Risk mỗi lệnh" value={`${profile.riskPerTradePercent}%`} helper="Dùng cho runtime quantity giả định" />
                     <MetricCard label="Daily loss limit" value={`${profile.dailyLossLimitPercent}%`} />
                     <MetricCard label="Max positions" value={profile.maxConcurrentPositions} />
@@ -532,7 +647,7 @@ export default function BotProfileDetailPage() {
             {activeTab === "Cấu hình" ? (
                 <section className="space-y-5">
                     {!archived ? (
-                        <form onSubmit={addSymbol} className="grid gap-3 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03] md:grid-cols-[1fr_120px_auto]">
+                        <form onSubmit={addSymbol} className="grid w-full grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
                             <input className={inputClass} placeholder="BTCUSDT" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} />
                             <input className={inputClass} type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} />
                             <button className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white">Lưu symbol</button>
@@ -569,12 +684,29 @@ export default function BotProfileDetailPage() {
                 </section>
             ) : null}
 
-            <details className="rounded-lg border border-gray-200 bg-white p-4 text-sm dark:border-gray-800 dark:bg-white/[0.03]">
-                <summary className="cursor-pointer font-semibold text-gray-950 dark:text-white">Chi tiết kỹ thuật</summary>
-                <pre className="mt-4 max-h-80 overflow-auto rounded-lg bg-gray-950 p-4 text-xs text-gray-100">
-                    {JSON.stringify({ latestDecisionReasonCodes: latestDecision?.reasonCodes ?? [], warnings: latestDecision?.warnings ?? [], marketContext }, null, 2)}
-                </pre>
-            </details>
+            {false ? (
+                <section className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                        <button disabled={observing} onClick={observeOnce} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50 dark:border-gray-800 dark:text-gray-200">Quan sát thị trường một lần</button>
+                        <button disabled={evaluatingContext} onClick={evaluateContextOnce} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50 dark:border-gray-800 dark:text-gray-200">Đánh giá context một lần</button>
+                        <button disabled={runtimeBusy} onClick={() => runtimeAction("runDryOnce")} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50 dark:border-gray-800 dark:text-gray-200">Run dry once</button>
+                        <button disabled={outcomeBusy} onClick={replay} className="rounded-lg border border-sky-300 px-4 py-2 text-sm font-medium text-sky-800 disabled:opacity-50 dark:border-sky-800 dark:text-sky-200">Replay read-only</button>
+                    </div>
+
+                    <details open className="rounded-lg border border-gray-200 bg-white p-4 text-sm dark:border-gray-800 dark:bg-white/[0.03]">
+                        <summary className="cursor-pointer font-semibold text-gray-950 dark:text-white">Chi tiết kỹ thuật</summary>
+                        <pre className="mt-4 max-h-96 overflow-auto rounded-lg bg-gray-950 p-4 text-xs text-gray-100">
+                            {JSON.stringify({
+                                runtimeStatus,
+                                latestDecisionReasonCodes: latestDecision?.reasonCodes ?? [],
+                                warnings: latestDecision?.warnings ?? [],
+                                marketContext,
+                                observation,
+                            }, null, 2)}
+                        </pre>
+                    </details>
+                </section>
+            ) : null}
         </div>
     );
 }

@@ -1,7 +1,13 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import { DecisionBadge } from "@/components/product/DecisionBadge";
+import { EmptyState } from "@/components/product/EmptyState";
+import { PageHeader } from "@/components/product/PageHeader";
+import { StatusBadge } from "@/components/product/StatusBadge";
+import { environmentLabel, environmentTone, formatMoneyValue, formatNumber } from "@/components/product/decisionPresenter";
 
 import {
     ordersService,
@@ -32,6 +38,30 @@ function badgeClass(v?: string) {
     return `${base} border-gray-300 text-gray-700 bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:bg-gray-800/50`;
 }
 
+function protectionLabel(value?: string | null) {
+    const normalized = String(value ?? "").toUpperCase();
+    if (normalized === "PROTECTED") return "Đã có SL/TP";
+    if (normalized === "UNPROTECTED") return "Thiếu bảo vệ";
+    if (normalized === "REPAIR_REQUIRED" || normalized === "RECONCILIATION_REQUIRED") return "Cần kiểm tra";
+    if (!normalized || normalized === "NOT_STARTED") return "Chưa bắt đầu";
+    return value ?? "Chưa rõ";
+}
+
+function orderUserState(row: OrderPlan) {
+    const status = String(row.status ?? "").toUpperCase();
+    const exchange = String(row.exchangeStatus ?? "").toUpperCase();
+    const protection = String(row.protectionState ?? "").toUpperCase();
+    if (protection === "UNPROTECTED" || protection === "REPAIR_REQUIRED" || protection === "RECONCILIATION_REQUIRED") {
+        return { label: "Thiếu bảo vệ", tone: "error" as const };
+    }
+    if (exchange === "CLOSED" || status === "EXPIRED") return { label: "Đã đóng hoặc hết hạn", tone: "stopped" as const };
+    if (exchange === "OPEN") return { label: "Đang mở theo sàn", tone: "success" as const };
+    if (status === "PREVIEW") return { label: "Đang chờ gửi lệnh", tone: "neutral" as const };
+    if (status === "EXECUTED" && exchange === "PENDING") return { label: "Đã gửi lệnh, đang chờ đồng bộ", tone: "warning" as const };
+    if (status === "EXECUTED") return { label: "Đã gửi lệnh", tone: "warning" as const };
+    return { label: "Chưa xác định trạng thái", tone: "dry" as const };
+}
+
 function isSyncable(row: OrderPlan) {
     return row.status === "EXECUTED";
 }
@@ -45,7 +75,7 @@ export default function OrdersPage() {
 
     const [page, setPage] = useState(1);
     const [limit, setLimit] = useState(10);
-    const [status, setStatus] = useState<PlanStatus | "">("");
+    const [status, setStatus] = useState<PlanStatus | "">("EXECUTED");
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -214,10 +244,11 @@ export default function OrdersPage() {
 
     return (
         <div className="space-y-4 text-gray-900 dark:text-gray-100">
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Lịch sử lệnh</h1>
-                {/* ✅ Không còn Sync page / Create Order */}
-            </div>
+            <PageHeader
+                eyebrow="Giao dịch"
+                title="Lệnh / vị thế hiện tại"
+                description="Theo dõi order plan và trạng thái sàn hiện có. Chỉ khi backend/sàn báo OPEN mới hiển thị như vị thế đang mở."
+            />
 
             <div className="flex flex-wrap gap-3 items-center">
                 <select
@@ -290,71 +321,76 @@ export default function OrdersPage() {
             )}
 
             {!loading && !error && (
-                <div className="rounded-lg overflow-hidden border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-                    <table className="w-full text-sm">
-                        <thead className="bg-gray-50 text-gray-600 dark:bg-gray-800/60 dark:text-gray-200">
-                            <tr className="text-left">
-                                <th className="p-3">Cặp</th>
-                                <th className="p-3">Chiều</th>
-                                <th className="p-3">Loại</th>
-                                <th className="p-3">Giá vào</th>
-                                <th className="p-3">Cắt lỗ</th>
-                                <th className="p-3">Chốt lời</th>
-                                <th className="p-3">Trạng thái</th>
-                                <th className="p-3">Sàn</th>
-                                <th className="p-3">Lần sync gần nhất</th>
-                                <th className="p-3">Thao tác</th>
-                            </tr>
-                        </thead>
-
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                            {rows.map((r) => {
+                rows.length === 0 ? (
+                    <EmptyState title="Không có lệnh/vị thế phù hợp bộ lọc" description="Không có OrderPlan nào ở trạng thái đang xem. Điều này không tự động chứng minh tài khoản không có vị thế nếu backend chưa đồng bộ." />
+                ) : (
+                    <div className="space-y-3">
+                        {rows.map((r) => {
                                 const id = safeId(r);
                                 const syncing = !!syncingIds[id];
                                 const syncable = isSyncable(r);
+                                const userState = orderUserState(r);
 
                                 return (
-                                    <tr key={id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
-                                        <td className="p-3">{r.symbol}</td>
-                                        <td className="p-3">{r.side}</td>
-                                        <td className="p-3">{r.orderType}</td>
-                                        <td className="p-3">{r.entry}</td>
-                                        <td className="p-3">{r.sl}</td>
-                                        <td className="p-3">{Array.isArray(r.tp) ? r.tp.join(", ") : "-"}</td>
-                                        <td className="p-3">{r.status}</td>
+                                    <article key={id} className="rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-brand-200 hover:bg-gray-50/60 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-800 dark:hover:bg-white/[0.05]">
+                                        <div className="grid gap-5 lg:grid-cols-[minmax(220px,0.9fr)_minmax(360px,1.45fr)_minmax(190px,auto)] lg:items-start">
+                                            <div className="space-y-1">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <h2 className="font-semibold text-gray-950 dark:text-white">{r.symbol}</h2>
+                                                    <DecisionBadge decision={r.side} />
+                                                    <StatusBadge value={environmentLabel(r.connectionTarget ?? r.environment)} tone={environmentTone(r.connectionTarget ?? r.environment)} />
+                                                </div>
+                                                <div><StatusBadge value={userState.label} tone={userState.tone} /></div>
+                                                <div className="text-sm text-gray-500 dark:text-gray-400">{r.orderType} · {r.marginType} · {r.leverage}x</div>
+                                            </div>
 
-                                        <td className="p-3">
-                                            <span className={badgeClass(r.exchangeStatus)}>{r.exchangeStatus ?? "-"}</span>
-                                        </td>
+                                            <div className="grid gap-3 text-sm md:grid-cols-3">
+                                                <div><span className="text-gray-500 dark:text-gray-400">Size</span><div className="font-medium">{formatNumber(r.qty, 6)}</div></div>
+                                                <div><span className="text-gray-500 dark:text-gray-400">Entry</span><div className="font-medium">{formatNumber(r.entry)}</div></div>
+                                                <div><span className="text-gray-500 dark:text-gray-400">PnL thực tế</span><div className="font-medium">{formatMoneyValue(null)}</div></div>
+                                                <div><span className="text-gray-500 dark:text-gray-400">Stop Loss</span><div className="font-medium">{formatNumber(r.sl)}</div></div>
+                                                <div><span className="text-gray-500 dark:text-gray-400">Take Profit</span><div className="font-medium">{Array.isArray(r.tp) && r.tp.length ? r.tp.map((tp) => formatNumber(tp)).join(", ") : "-"}</div></div>
+                                                <div><span className="text-gray-500 dark:text-gray-400">Bảo vệ</span><div className="font-medium">{protectionLabel(r.protectionState)}</div></div>
+                                            </div>
 
-                                        <td className="p-3">
-                                            {r.lastSyncAt ? new Date(r.lastSyncAt).toLocaleString() : "-"}
-                                        </td>
-
-                                        <td className="p-3">
-                                            <button
-                                                className="text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
-                                                disabled={loading || syncing || !syncable}
-                                                onClick={() => onSyncOne(id)}
-                                                title={!syncable ? "Chỉ sync lệnh đã EXECUTED" : syncing ? "Đang đồng bộ..." : "Đồng bộ sàn"}
-                                            >
-                                                {syncing ? "Đang sync..." : "Sync"}
-                                            </button>
-                                        </td>
-                                    </tr>
+                                            <div className="flex flex-col items-end text-right space-y-1">
+                                                <span className={badgeClass(r.exchangeStatus)}>{r.exchangeStatus ?? "Chưa đồng bộ"}</span>
+                                                <StatusBadge value={r.status} />
+                                                <div className="flex items-center justify-end gap-1.5 text-gray-400 dark:text-gray-500">
+                                                    <span className="text-xs">{r.lastSyncAt ? new Date(r.lastSyncAt).toLocaleString() : "Chưa đồng bộ"}</span>
+                                                    <button
+                                                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 text-gray-500 transition hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                                                        disabled={loading || syncing || !syncable}
+                                                        onClick={() => onSyncOne(id)}
+                                                        title={!syncable ? "Chỉ sync lệnh đã EXECUTED" : syncing ? "Đang đồng bộ..." : "Đồng bộ sàn"}
+                                                        aria-label="Đồng bộ sàn"
+                                                    >
+                                                        <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                                                    </button>
+                                                </div>
+                                                <details className="relative text-sm">
+                                                    <summary className="cursor-pointer list-none text-gray-500 hover:text-gray-950 dark:text-gray-400 dark:hover:text-white">Chi tiết kỹ thuật</summary>
+                                                    <pre className="absolute right-0 z-20 mt-3 max-h-72 w-[min(720px,calc(100vw-2rem))] overflow-auto rounded-lg bg-gray-950 p-3 text-left text-xs text-gray-100 shadow-2xl">
+                                                        {JSON.stringify({
+                                                            orderPlanId: r._id,
+                                                            accountId: r.accountId,
+                                                            status: r.status,
+                                                            exchangeStatus: r.exchangeStatus,
+                                                            protectionState: r.protectionState,
+                                                            sizingSnapshot: r.sizingSnapshot,
+                                                            exchangeSnapshot: r.exchangeSnapshot,
+                                                            metadata: r.metadata,
+                                                            failureReason: r.failureReason,
+                                                        }, null, 2)}
+                                                    </pre>
+                                                </details>
+                                            </div>
+                                        </div>
+                                    </article>
                                 );
                             })}
-
-                            {rows.length === 0 && (
-                                <tr>
-                                    <td className="p-3 text-gray-600 dark:text-gray-400" colSpan={10}>
-                                        Không có lệnh nào
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                    </div>
+                )
             )}
         </div>
     );

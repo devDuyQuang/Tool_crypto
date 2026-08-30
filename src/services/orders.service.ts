@@ -44,6 +44,8 @@ export type ExecuteOrderResponse = {
 export type OrderPlan = {
     _id: string;
     accountId: string;
+    environment?: "LIVE" | "TESTNET" | "DEMO";
+    connectionTarget?: string;
     symbol: string;
     orderType: OrderType;
     side: Side;
@@ -67,6 +69,15 @@ export type OrderPlan = {
     lastSyncAt?: string;
 
     exchangeSnapshot?: any;
+    protectionState?: string | null;
+    sizingSnapshot?: {
+        notional?: number;
+        riskUsd?: number;
+        riskPctOfCapital?: number;
+        slDistPct?: number;
+    };
+    metadata?: Record<string, any>;
+    failureReason?: string | null;
 
     createdAt?: string;
     updatedAt?: string;

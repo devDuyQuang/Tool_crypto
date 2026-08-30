@@ -1,93 +1,276 @@
 "use client";
 
 import Link from "next/link";
-import type { BotProfile, DecisionJournal, RuntimeStatus } from "@/types/botProfile";
-import { DecisionBadge } from "./DecisionBadge";
-import { HealthIndicator } from "./HealthIndicator";
-import { StatusBadge } from "./StatusBadge";
+import { useState } from "react";
+import { toast } from "react-toastify";
+import { accountsService } from "@/services/accounts.service";
+import { productRiskPreset } from "@/services/productBot.service";
+import type { Account } from "@/types/account";
+import type { BotProfile, DecisionJournal, ProductBotDefaults, ProductRiskLevel, RuntimeStatus } from "@/types/botProfile";
 
 type BotCardProps = {
     bot: BotProfile;
     runtime?: RuntimeStatus | null;
     latestDecision?: DecisionJournal | null;
+    environmentSource?: string | null;
+    accounts?: Account[];
+    productDefaults?: ProductBotDefaults | null;
+    onAccountChange?: (accountId: string) => void;
+    onRiskLevelChange?: (riskLevel: ProductRiskLevel) => void;
+    onPositionSizeChange?: (amountUsdt: number) => void;
     onStart?: () => void;
     onPause?: () => void;
     onStop?: () => void;
 };
 
-export function BotCard({ bot, runtime, latestDecision, onStart, onPause, onStop }: BotCardProps) {
-    const enabledSymbols = (bot.symbols ?? []).filter((s) => s.enabled);
-    const health = bot.status === "RUNNING" ? "healthy" : bot.status === "PAUSED" ? "warning" : bot.status === "ARCHIVED" ? "error" : "unknown";
-    const hasActivePosition = Boolean(runtime?.protectionSummary?.hasActivePosition);
-    const hasProtectedPosition = Boolean(runtime?.protectionSummary?.hasProtectedPosition);
-    const hasRiskPause = bot.status === "PAUSED" && runtime?.lastRun?.errorSummaries?.some((item) => String(item.code ?? item.message ?? "").includes("RISK"));
-    const canStart = !["RUNNING", "ARCHIVED"].includes(bot.status);
-    const canPause = bot.status === "RUNNING";
-    const canStop = bot.status === "RUNNING" || bot.status === "PAUSED";
+function accountId(account: Account) {
+    return account._id ?? account.id ?? "";
+}
+
+function riskLevelForBot(bot: BotProfile, defaults?: ProductBotDefaults | null): ProductRiskLevel {
+    const levels: ProductRiskLevel[] = ["LOW", "MEDIUM", "HIGH"];
+    const matched = levels.find((level) => {
+        const preset = productRiskPreset(defaults, level);
+        return Math.abs(Number(bot.riskPerTradePercent) - preset.riskPerTradePercent) < 0.0001;
+    });
+    return matched ?? "MEDIUM";
+}
+
+function formatPnl(value?: number | null) {
+    const amount = Number.isFinite(Number(value)) ? Number(value) : 0;
+    const sign = amount > 0 ? "+" : amount < 0 ? "-" : "+";
+    return `${sign}$${Math.abs(amount).toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
+}
+
+export function BotCard({
+    bot,
+    runtime,
+    accounts = [],
+    productDefaults,
+    onAccountChange,
+    onRiskLevelChange,
+    onPositionSizeChange,
+    onStart,
+    onPause,
+    onStop,
+}: BotCardProps) {
+    const [isOpenApiModal, setIsOpenApiModal] = useState(false);
+    const [apiForm, setApiForm] = useState({ apiKey: "", secretKey: "", passphrase: "" });
+    const [savingApi, setSavingApi] = useState(false);
+
+    const riskLevel = riskLevelForBot(bot, productDefaults);
+    const isRunning = bot.status === "RUNNING";
+    const isArchived = bot.status === "ARCHIVED";
+    const pnlToday = 0;
+    const pnlTone = pnlToday < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400";
+    const selectedAccount = accounts.find((account) => accountId(account) === bot.accountId);
+
+    const saveApiAccount = async () => {
+        const apiKey = apiForm.apiKey.trim();
+        const secretKey = apiForm.secretKey.trim();
+        const passphrase = apiForm.passphrase.trim();
+
+        if (!apiKey || !secretKey || !passphrase) {
+            toast.error("Nhập đủ API Key, Secret Key và Passphrase.");
+            return;
+        }
+
+        setSavingApi(true);
+        try {
+            const created = await accountsService.create({
+                platform: "OKX",
+                label: `OKX ${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`,
+                apiKey,
+                secretKey,
+                passphrase,
+                connectionTarget: "OKX_DEMO",
+            });
+            const id = created._id ?? created.id;
+            if (!id) throw new Error("Backend chưa trả account id.");
+
+            const verified = await accountsService.verify(id);
+            if (!verified.ok) throw new Error(verified.message || "Không xác minh được tài khoản.");
+
+            await accountsService.update(id, { tradingEnabled: true }).catch(() => undefined);
+            onAccountChange?.(id);
+            setApiForm({ apiKey: "", secretKey: "", passphrase: "" });
+            setIsOpenApiModal(false);
+            toast.success("Đã lưu tài khoản OKX Sandbox cho bot.");
+        } catch (error: any) {
+            toast.error(error?.message || "Không lưu được tài khoản API.");
+        } finally {
+            setSavingApi(false);
+        }
+    };
+
+    const toggleBot = () => {
+        if (isRunning) {
+            (onStop ?? onPause)?.();
+            return;
+        }
+        onStart?.();
+    };
 
     return (
-        <article className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Link href={`/bot-profiles/${bot._id}`} className="text-lg font-semibold text-gray-950 hover:text-brand-600 dark:text-white">
-                            {bot.name}
-                        </Link>
-                        <StatusBadge value={bot.status} />
-                        {bot.status === "RUNNING" ? <StatusBadge value="Đang quét" /> : null}
-                        {hasActivePosition ? <StatusBadge value="Đang có vị thế" /> : null}
-                        {hasProtectedPosition ? <StatusBadge value="Đã bảo vệ" /> : null}
-                        {hasActivePosition && !hasProtectedPosition ? <StatusBadge value="Không được bảo vệ" /> : null}
-                        {hasRiskPause ? <StatusBadge value="Tạm dừng do rủi ro" /> : null}
+        <article className="w-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+            <div className="flex w-full flex-col space-y-3">
+                <div className="flex w-full flex-col space-y-2">
+                    <div className="flex w-full items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                            <Link href={`/bot-profiles/${bot._id}`} className="block truncate text-base font-semibold text-gray-950 hover:text-brand-600 dark:text-white">
+                                {bot.name}
+                            </Link>
+                            <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
+                                {selectedAccount?.label || selectedAccount?.username || "Chưa kết nối tài khoản OKX"}
+                            </p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${isRunning ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-gray-100 text-gray-600 dark:bg-white/[0.06] dark:text-gray-300"}`}>
+                            {isRunning ? "Đang hoạt động" : "Đã dừng"}
+                        </span>
                     </div>
-                    <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                        {bot.platform} · {enabledSymbols.length} symbol đang theo dõi
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                        {enabledSymbols.slice(0, 8).map((symbol) => (
-                            <span key={symbol._id} className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 dark:bg-white/[0.06] dark:text-gray-200">
-                                {symbol.symbol}
-                            </span>
-                        ))}
-                    </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    <button disabled={!canStart} onClick={onStart} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700">
-                        START
-                    </button>
-                    <button disabled={!canPause} onClick={onPause} className="rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 dark:border-amber-800 dark:text-amber-300 dark:disabled:border-gray-800">
-                        PAUSE
-                    </button>
-                    <button disabled={!canStop} onClick={onStop} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200">
-                        STOP
+
+                    <button
+                        type="button"
+                        onClick={() => setIsOpenApiModal((current) => !current)}
+                        className="h-10 w-full rounded-xl border border-brand-100 bg-brand-50 px-3 text-left text-sm font-semibold text-brand-700 transition hover:bg-brand-100 dark:border-brand-900/60 dark:bg-brand-950/30 dark:text-brand-200 dark:hover:bg-brand-950/50"
+                    >
+                        ➕ Kết nối API Sàn (OKX)
                     </button>
                 </div>
-            </div>
-            <div className="mt-5 grid gap-4 border-t border-gray-100 pt-4 text-sm dark:border-gray-800 md:grid-cols-4">
-                <div>
-                    <div className="text-gray-500 dark:text-gray-400">Sức khỏe</div>
-                    <div className="mt-1"><HealthIndicator health={health} label={bot.status === "RUNNING" ? "Đang quét" : bot.status} /></div>
-                </div>
-                <div>
-                    <div className="text-gray-500 dark:text-gray-400">Lần quét cuối</div>
-                    <div className="mt-1 font-medium text-gray-900 dark:text-gray-100">{runtime?.lastRun?.completedAt ? new Date(runtime.lastRun.completedAt).toLocaleString() : "Chưa có"}</div>
-                </div>
-                <div>
-                    <div className="text-gray-500 dark:text-gray-400">Quyết định mới nhất</div>
-                    <div className="mt-1 space-y-1">
-                        {latestDecision ? (
-                            <>
-                                <DecisionBadge decision={latestDecision.decision} />
-                                <div className="text-xs text-gray-500 dark:text-gray-400">{latestDecision.prices?.strategyKey ?? "Chưa chọn strategy"}</div>
-                            </>
-                        ) : (
-                            <div className="font-medium text-gray-900 dark:text-gray-100">Chưa có tín hiệu giao dịch mới</div>
-                        )}
+
+                {isOpenApiModal ? (
+                    <div className="w-full rounded-2xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.04]">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <h3 className="text-sm font-semibold text-gray-950 dark:text-white">Cài đặt API OKX</h3>
+                                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">Dán API Sandbox để lưu và gắn trực tiếp vào bot này.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsOpenApiModal(false)}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 dark:hover:bg-white/[0.08]"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="mt-3 flex w-full flex-col space-y-3">
+                            <label className="block w-full text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                                API Key
+                                <input
+                                    className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm normal-case text-gray-900 outline-none focus:border-brand-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
+                                    value={apiForm.apiKey}
+                                    onChange={(event) => setApiForm((current) => ({ ...current, apiKey: event.target.value }))}
+                                    autoComplete="off"
+                                />
+                            </label>
+
+                            <label className="block w-full text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                                Secret Key
+                                <input
+                                    type="password"
+                                    className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm normal-case text-gray-900 outline-none focus:border-brand-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
+                                    value={apiForm.secretKey}
+                                    onChange={(event) => setApiForm((current) => ({ ...current, secretKey: event.target.value }))}
+                                    autoComplete="new-password"
+                                />
+                            </label>
+
+                            <label className="block w-full text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                                Passphrase
+                                <input
+                                    type="password"
+                                    className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm normal-case text-gray-900 outline-none focus:border-brand-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
+                                    value={apiForm.passphrase}
+                                    onChange={(event) => setApiForm((current) => ({ ...current, passphrase: event.target.value }))}
+                                    autoComplete="new-password"
+                                />
+                            </label>
+
+                            <button
+                                type="button"
+                                disabled={savingApi}
+                                onClick={saveApiAccount}
+                                className="h-11 w-full rounded-xl bg-brand-600 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700"
+                            >
+                                {savingApi ? "Đang lưu..." : "Lưu API"}
+                            </button>
+                        </div>
                     </div>
+                ) : null}
+
+                <div className="flex w-full flex-col space-y-3 rounded-2xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.03]">
+                    <label className="block w-full text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                        Tài khoản sàn
+                        <select
+                            className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm normal-case text-gray-900 outline-none focus:border-brand-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
+                            value={bot.accountId}
+                            onChange={(event) => onAccountChange?.(event.target.value)}
+                        >
+                            {accounts.length ? accounts.map((account) => (
+                                <option key={accountId(account)} value={accountId(account)}>
+                                    {account.label || account.username || account.platform}
+                                </option>
+                            )) : (
+                                <option value={bot.accountId}>Chưa có tài khoản</option>
+                            )}
+                        </select>
+                    </label>
+
+                    <label className="block w-full text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                        Mức rủi ro
+                        <select
+                            className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm normal-case text-gray-900 outline-none focus:border-brand-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
+                            value={riskLevel}
+                            onChange={(event) => onRiskLevelChange?.(event.target.value as ProductRiskLevel)}
+                        >
+                            <option value="LOW">Thận trọng</option>
+                            <option value="MEDIUM">Cân bằng</option>
+                            <option value="HIGH">Tăng trưởng</option>
+                        </select>
+                    </label>
+
+                    <label className="block w-full text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                        Số tiền mỗi lệnh (USDT)
+                        <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            inputMode="decimal"
+                            className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm normal-case text-gray-900 outline-none focus:border-brand-400 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
+                            defaultValue={Number(bot.maxNotionalPerTradeUsdt ?? 0) || ""}
+                            onBlur={(event) => {
+                                const amount = Number(event.target.value);
+                                if (Number.isFinite(amount) && amount > 0 && amount !== Number(bot.maxNotionalPerTradeUsdt ?? 0)) {
+                                    onPositionSizeChange?.(amount);
+                                }
+                            }}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                    event.currentTarget.blur();
+                                }
+                            }}
+                        />
+                    </label>
                 </div>
-                <div>
-                    <div className="text-gray-500 dark:text-gray-400">Opportunity</div>
-                    <div className="mt-1 font-medium text-gray-900 dark:text-gray-100">{latestDecision?.prices?.opportunityScore ?? "-"} / 100</div>
+
+                <div className="flex w-full flex-col space-y-3 rounded-2xl border border-gray-100 p-3 dark:border-gray-800">
+                    <div className="w-full">
+                        <p className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Lời/Lỗ hôm nay</p>
+                        <p className={`mt-1 text-3xl font-bold tracking-normal ${pnlTone}`}>{formatPnl(pnlToday)}</p>
+                    </div>
+
+                    <button
+                        type="button"
+                        disabled={isArchived}
+                        onClick={toggleBot}
+                        className={`h-12 w-full rounded-2xl text-sm font-bold uppercase tracking-normal text-white transition disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-700 ${isRunning ? "bg-rose-600 hover:bg-rose-700" : "bg-brand-600 hover:bg-brand-700"}`}
+                    >
+                        {isRunning ? "DỪNG BOT" : "BẬT BOT"}
+                    </button>
                 </div>
             </div>
         </article>

@@ -14,6 +14,7 @@ import type {
     DecisionPerformance,
     EvaluateOutcomesResult,
     RuntimeRun,
+    ProductBotDefaults,
 } from "@/types/botProfile";
 
 export const botProfilesService = {
@@ -74,6 +75,10 @@ export const botProfilesService = {
 
     runtimeStatus(id: string) {
         return apiFetch<RuntimeStatus>(`/bot-profiles/${id}/runtime-status`);
+    },
+
+    okxDemoAutoProductDefaults() {
+        return apiFetch<ProductBotDefaults>("/bot-profiles/product-defaults/okx-demo-auto");
     },
 
     runtimeRuns(id: string) {
